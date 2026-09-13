@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // Store persists per-project ownership and runtime overrides as JSON files.
@@ -47,6 +49,43 @@ func (s *Store) Load(projectID string) (ProjectState, error) {
 		return ProjectState{}, fmt.Errorf("%w: state version %d in %s cannot be loaded; migrate or remove the file", ErrUnsupportedVersion, state.Version, path)
 	}
 	return state, nil
+}
+
+// List returns every saved Pier project, ordered by most recent activity.
+func (s *Store) List() ([]ProjectState, error) {
+	entries, err := os.ReadDir(s.dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list project state: %w", err)
+	}
+
+	projects := make([]ProjectState, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		contents, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read project state %s: %w", entry.Name(), err)
+		}
+		var project ProjectState
+		if err := json.Unmarshal(contents, &project); err != nil {
+			return nil, fmt.Errorf("decode project state %s: %w", entry.Name(), err)
+		}
+		if project.Version != CurrentVersion {
+			return nil, fmt.Errorf("%w: state version %d in %s cannot be loaded; migrate or remove the file", ErrUnsupportedVersion, project.Version, entry.Name())
+		}
+		projects = append(projects, project)
+	}
+	sort.SliceStable(projects, func(i, j int) bool {
+		if projects[i].UpdatedAt.Equal(projects[j].UpdatedAt) {
+			return projects[i].Name < projects[j].Name
+		}
+		return projects[i].UpdatedAt.After(projects[j].UpdatedAt)
+	})
+	return projects, nil
 }
 
 // Save atomically writes project state.

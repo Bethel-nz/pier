@@ -90,6 +90,7 @@ type JSONService struct {
 	Target    string `json:"target"`
 	Path      string `json:"path"`
 	Public    bool   `json:"public"`
+	Paused    bool   `json:"paused"`
 	Health    string `json:"health"`
 	URL       string `json:"url"`
 	HTTPSPort uint16 `json:"httpsPort"`
@@ -172,6 +173,7 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			Target:    displayTarget(service),
 			Path:      service.Path,
 			Public:    service.Public,
+			Paused:    service.Paused,
 			Health:    string(service.Health.Status),
 			URL:       service.URL,
 			HTTPSPort: service.HTTPSPort,

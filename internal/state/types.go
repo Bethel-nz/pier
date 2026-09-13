@@ -21,6 +21,7 @@ type ProjectState struct {
 	ConfigHash string          `json:"configHash,omitempty"`
 	Routes     []Route         `json:"routes,omitempty"`
 	Overrides  map[string]bool `json:"overrides,omitempty"`
+	Paused     map[string]bool `json:"paused,omitempty"`
 	UpdatedAt  time.Time       `json:"updatedAt"`
 }
 

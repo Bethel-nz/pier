@@ -8,11 +8,12 @@ import (
 
 	"pier/internal/app"
 	"pier/internal/project"
+	"pier/internal/state"
 )
 
 // Run starts the interactive management interface.
-func Run(ctx context.Context, svc *app.Service, proj project.Context, options Options) error {
-	m := newModel(ctx, svc, proj, options)
+func Run(ctx context.Context, svc *app.Service, catalog *state.Store, proj project.Context, options Options) error {
+	m := newModelWithCatalog(ctx, svc, proj, options, catalog)
 	program := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err := program.Run()
 	return err

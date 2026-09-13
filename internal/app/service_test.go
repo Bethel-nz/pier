@@ -479,7 +479,7 @@ func (e *fakeEnv) desiredRoutes() []reconcile.Route {
 	if err != nil {
 		panic(err)
 	}
-	return desiredRoutes(e.project, normalized, e.state.Overrides)
+	return desiredRoutes(e.project, normalized, e.state.Overrides, e.state.Paused)
 }
 
 func (e *fakeEnv) service() *Service {

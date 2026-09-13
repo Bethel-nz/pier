@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"pier/internal/app"
 	"pier/internal/project"
 	"pier/internal/render"
+	"pier/internal/state"
 	"pier/internal/tui"
 )
 
@@ -149,6 +151,92 @@ func newUnshareCommand(rt *runtime) *cobra.Command {
 	}
 }
 
+func newPauseCommand(rt *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "pause <service>",
+		Short: "Remove a service route from Tailscale without stopping the local process",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rt.app.Pause(cmd.Context(), app.PauseRequest{Start: rt.start(), Service: args[0]})
+			return rt.renderer("pause").Pause(result, err)
+		},
+	}
+}
+
+func newResumeCommand(rt *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "resume <service>",
+		Short: "Restore a paused service route",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := rt.app.Resume(cmd.Context(), app.ResumeRequest{Start: rt.start(), Service: args[0]})
+			return rt.renderer("resume").Resume(result, err)
+		},
+	}
+}
+
+func newAddCommand(rt *runtime) *cobra.Command {
+	var target, path, protocol string
+	var public bool
+	cmd := &cobra.Command{
+		Use:   "add [name]",
+		Short: "Add a service to pier.yaml",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			values := tui.AddServiceValues{Target: target, Path: path, Protocol: protocol, Public: public}
+			if len(args) == 1 {
+				values.Name = args[0]
+			}
+			if values.Name == "" || values.Target == "" {
+				if !tui.StdioIsTTY() {
+					return rt.renderer("service add").Error(fmt.Errorf("Pier service add requires a service name and --target"))
+				}
+				if err := tui.FillAddService(&values, existingNames(cmd.Context(), rt)); err != nil {
+					if errors.Is(err, tui.ErrFormAborted) {
+						return nil
+					}
+					return rt.renderer("service add").Error(err)
+				}
+			}
+			result, err := rt.app.AddService(cmd.Context(), app.AddServiceRequest{
+				Start:    rt.start(),
+				Name:     values.Name,
+				Target:   values.Target,
+				Path:     values.Path,
+				Public:   values.Public,
+				Protocol: values.Protocol,
+			})
+			return rt.renderer("service add").Add(result, err)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", "", "local host:port, for example localhost:4000")
+	cmd.Flags().StringVar(&path, "path", "/", "Tailscale path")
+	cmd.Flags().StringVar(&protocol, "protocol", "", "http or https")
+	cmd.Flags().BoolVar(&public, "public", false, "expose through Tailscale Funnel")
+	return cmd
+}
+
+func newServiceCommand(rt *runtime) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "service",
+		Short: "Manage services in pier.yaml",
+	}
+	cmd.AddCommand(newAddCommand(rt))
+	return cmd
+}
+
+func existingNames(ctx context.Context, rt *runtime) []string {
+	result, err := rt.app.Validate(ctx, app.ValidateRequest{Start: rt.start()})
+	if err != nil && len(result.Config.Services) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(result.Config.Services))
+	for _, service := range result.Config.Services {
+		names = append(names, service.Name)
+	}
+	return names
+}
+
 func newOpenCommand(rt *runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "open <service>",
@@ -177,10 +265,14 @@ func runTUI(ctx context.Context, rt *runtime) error {
 		return fmt.Errorf("Pier TUI requires the application service")
 	}
 	proj, err := project.Find(rt.start())
+	if err != nil && !errors.Is(err, project.ErrNotFound) {
+		return err
+	}
+	store, err := state.Open()
 	if err != nil {
 		return err
 	}
-	return tui.Run(ctx, svc, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
+	return tui.Run(ctx, svc, store, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
 }
 
 func newCopyCommand(rt *runtime) *cobra.Command {

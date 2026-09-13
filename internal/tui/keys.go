@@ -16,6 +16,11 @@ type keyMap struct {
 	Quit       key.Binding
 	Confirm    key.Binding
 	Cancel     key.Binding
+	Add        key.Binding
+	Pause      key.Binding
+	NextPane   key.Binding
+	LeftPane   key.Binding
+	RightPane  key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -33,11 +38,16 @@ func newKeyMap() keyMap {
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Confirm:    key.NewBinding(key.WithKeys("enter", "y"), key.WithHelp("enter", "confirm")),
 		Cancel:     key.NewBinding(key.WithKeys("esc", "n"), key.WithHelp("esc", "cancel")),
+		Add:        key.NewBinding(key.WithKeys("a", "+"), key.WithHelp("a", "add")),
+		Pause:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "pause/resume")),
+		NextPane:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+		LeftPane:   key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("h/l", "switch pane")),
+		RightPane:  key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("h/l", "switch pane")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.SelectUp, k.Up, k.Down, k.Plan, k.Share, k.Copy, k.Open, k.Refresh, k.Help, k.Quit}
+	return []key.Binding{k.NextPane, k.SelectUp, k.Up, k.Down, k.Plan, k.Share, k.Pause, k.Copy, k.Open, k.Add, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {

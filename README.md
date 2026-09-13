@@ -81,6 +81,9 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 | `pier doctor` | Diagnose config, Tailscale, and local targets |
 | `pier share <service>` | Runtime-only `public: true` override |
 | `pier unshare <service>` | Remove the override and restore configured access |
+| `pier pause <service>` | Remove that service's Tailscale route; the local process stays running |
+| `pier resume <service>` | Restore a paused service route |
+| `pier service add [name]` | Add a service to `pier.yaml` (Huh form in a TTY, or `--target`) |
 | `pier open <service>` | Open the current Tailscale URL |
 | `pier copy <service>` | Copy the current Tailscale URL |
 | `pier` / `pier tui` | Interactive management interface |
@@ -95,8 +98,9 @@ Global flags: `--config`, `--json`, `--verbose`, `--no-color`.
 ## TUI keys
 
 ```
-↑/↓ select   u up   d down   p plan   s share/unshare
-c copy       o open r refresh         ? help   q quit
+↑/↓ select   a add   space pause/resume
+u up         d down  p plan   s share/unshare
+c copy       o open  r refresh  ? help   q quit
 ```
 
 Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit while a confirmation modal is open.

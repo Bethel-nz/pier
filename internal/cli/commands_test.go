@@ -31,6 +31,10 @@ type fakeApp struct {
 	doctorErr   error
 	shareErr    error
 	unshareErr  error
+	pauseErr    error
+	resumeErr   error
+	addErr      error
+	addReq      app.AddServiceRequest
 	openErr     error
 	copyErr     error
 }
@@ -59,6 +63,16 @@ func (f *fakeApp) Share(context.Context, app.ShareRequest) (app.ShareResult, err
 }
 func (f *fakeApp) Unshare(context.Context, app.UnshareRequest) (app.UnshareResult, error) {
 	return app.UnshareResult{}, f.unshareErr
+}
+func (f *fakeApp) Pause(context.Context, app.PauseRequest) (app.PauseResult, error) {
+	return app.PauseResult{}, f.pauseErr
+}
+func (f *fakeApp) Resume(context.Context, app.ResumeRequest) (app.ResumeResult, error) {
+	return app.ResumeResult{}, f.resumeErr
+}
+func (f *fakeApp) AddService(_ context.Context, req app.AddServiceRequest) (app.AddServiceResult, error) {
+	f.addReq = req
+	return app.AddServiceResult{}, f.addErr
 }
 func (f *fakeApp) Open(context.Context, app.OpenRequest) (app.OpenResult, error) {
 	return app.OpenResult{}, f.openErr
@@ -198,6 +212,8 @@ func TestServiceNotFoundCommands(t *testing.T) {
 	}{
 		{[]string{"share", "missing"}, &fakeApp{shareErr: missing}},
 		{[]string{"unshare", "missing"}, &fakeApp{unshareErr: missing}},
+		{[]string{"pause", "missing"}, &fakeApp{pauseErr: missing}},
+		{[]string{"resume", "missing"}, &fakeApp{resumeErr: missing}},
 		{[]string{"open", "missing"}, &fakeApp{openErr: missing}},
 		{[]string{"copy", "missing"}, &fakeApp{copyErr: missing}},
 	}
@@ -209,6 +225,30 @@ func TestServiceNotFoundCommands(t *testing.T) {
 		if !strings.Contains(stderr, `service named "missing"`) {
 			t.Errorf("%s stderr = %q", tc.args[0], stderr)
 		}
+	}
+}
+
+func TestServiceAddRequiresNameAndTargetWithoutTTY(t *testing.T) {
+	_, stderr, err := runCLI(t, &fakeApp{}, "service", "add")
+	if err == nil {
+		t.Fatal("service add without name/target error = nil")
+	}
+	if !strings.Contains(stderr, "--target") {
+		t.Fatalf("service add stderr = %q", stderr)
+	}
+}
+
+func TestServiceAddWithFlagsPassesProtocolWithoutForm(t *testing.T) {
+	fake := &fakeApp{status: app.StatusResult{}}
+	stdout, _, err := runCLI(t, fake, "service", "add", "api", "--target", "localhost:4000", "--path", "/api", "--protocol", "https")
+	if err != nil {
+		t.Fatalf("service add error = %v", err)
+	}
+	if stdout == "" && err != nil {
+		t.Fatal("service add produced no output")
+	}
+	if fake.addReq.Name != "api" || fake.addReq.Target != "localhost:4000" || fake.addReq.Path != "/api" || fake.addReq.Protocol != "https" {
+		t.Fatalf("service add request = %#v", fake.addReq)
 	}
 }
 

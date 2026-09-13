@@ -56,6 +56,8 @@ Serve and Funnel never share a listener. Changing `public` (or using `pier share
 
 `pier share <service>` stores `public: true` in per-project state under the user config directory. `pier.yaml` is not modified. `pier unshare` removes the override. The override is persisted only after Tailscale verifies the route change.
 
+`pier pause <service>` stores a runtime pause flag in the same per-project state and deletes that service's Tailscale route. The local process is not started, stopped, or signaled. `pier resume` clears the flag and restores the route. `pier up` skips paused services. `pier service add` writes a new service into `pier.yaml` and does not change Tailscale until `pier up` or `pier resume`.
+
 ## Machine-readable output
 
 `--json` wraps every command in:

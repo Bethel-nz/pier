@@ -11,6 +11,11 @@ import (
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+// ValidServiceName reports whether name matches Pier's service-name rule.
+func ValidServiceName(name string) bool {
+	return serviceNamePattern.MatchString(name)
+}
+
 // ValidationError describes one invalid project or service field.
 type ValidationError struct {
 	Service string

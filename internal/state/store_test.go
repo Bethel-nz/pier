@@ -215,3 +215,60 @@ func TestDeleteRemovesState(t *testing.T) {
 		t.Fatalf("Load() after Delete = %#v, want %#v", got, want)
 	}
 }
+
+func TestListReturnsSavedProjectsMostRecentlyUpdatedFirst(t *testing.T) {
+	store := New(t.TempDir())
+	older := ProjectState{
+		Version:   CurrentVersion,
+		ProjectID: "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff",
+		Name:      "older",
+		Path:      "/tmp/older",
+		UpdatedAt: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC),
+	}
+	newer := ProjectState{
+		Version:   CurrentVersion,
+		ProjectID: "019f6429-bbbb-4bbb-8ccc-ddddeeeeffff",
+		Name:      "newer",
+		Path:      "/tmp/newer",
+		UpdatedAt: time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.Save(older); err != nil {
+		t.Fatalf("Save() older error = %v", err)
+	}
+	if err := store.Save(newer); err != nil {
+		t.Fatalf("Save() newer error = %v", err)
+	}
+
+	got, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, []ProjectState{newer, older}) {
+		t.Fatalf("List() = %#v, want newer then older", got)
+	}
+}
+
+func TestListSkipsUnrelatedFiles(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	project := ProjectState{
+		Version:   CurrentVersion,
+		ProjectID: "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff",
+		Name:      "pier",
+		Path:      "/tmp/pier",
+	}
+	if err := store.Save(project); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("not state"), 0o600); err != nil {
+		t.Fatalf("write unrelated file: %v", err)
+	}
+
+	got, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, []ProjectState{project}) {
+		t.Fatalf("List() = %#v, want only saved project", got)
+	}
+}

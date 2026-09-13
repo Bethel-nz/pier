@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 	"pier/internal/health"
 	"pier/internal/project"
 	"pier/internal/reconcile"
+	"pier/internal/state"
 )
 
 type fakeTUI struct {
@@ -20,6 +23,34 @@ type fakeTUI struct {
 	doctor  app.DoctorResult
 	plan    app.PlanResult
 	planErr error
+}
+
+type fakeCatalog struct {
+	projects []state.ProjectState
+}
+
+func (f *fakeCatalog) List() ([]state.ProjectState, error) {
+	return append([]state.ProjectState(nil), f.projects...), nil
+}
+
+func (f *fakeCatalog) Load(id string) (state.ProjectState, error) {
+	for _, item := range f.projects {
+		if item.ProjectID == id {
+			return item, nil
+		}
+	}
+	return state.ProjectState{Version: state.CurrentVersion}, nil
+}
+
+func (f *fakeCatalog) Save(item state.ProjectState) error {
+	for index := range f.projects {
+		if f.projects[index].ProjectID == item.ProjectID {
+			f.projects[index] = item
+			return nil
+		}
+	}
+	f.projects = append(f.projects, item)
+	return nil
 }
 
 func (f *fakeTUI) Status(context.Context, app.StatusRequest) (app.StatusResult, error) {
@@ -49,6 +80,18 @@ func (f *fakeTUI) Share(_ context.Context, req app.ShareRequest) (app.ShareResul
 func (f *fakeTUI) Unshare(_ context.Context, req app.UnshareRequest) (app.UnshareResult, error) {
 	f.calls = append(f.calls, "unshare:"+req.Service)
 	return app.UnshareResult{}, nil
+}
+func (f *fakeTUI) Pause(_ context.Context, req app.PauseRequest) (app.PauseResult, error) {
+	f.calls = append(f.calls, "pause:"+req.Service)
+	return app.PauseResult{}, nil
+}
+func (f *fakeTUI) Resume(_ context.Context, req app.ResumeRequest) (app.ResumeResult, error) {
+	f.calls = append(f.calls, "resume:"+req.Service)
+	return app.ResumeResult{}, nil
+}
+func (f *fakeTUI) AddService(_ context.Context, req app.AddServiceRequest) (app.AddServiceResult, error) {
+	f.calls = append(f.calls, "add:"+req.Name)
+	return app.AddServiceResult{Service: app.ServiceInfo{Name: req.Name, Target: req.Target, Path: req.Path, Public: req.Public}}, nil
 }
 func (f *fakeTUI) Open(_ context.Context, req app.OpenRequest) (app.OpenResult, error) {
 	f.calls = append(f.calls, "open:"+req.Service)
@@ -85,6 +128,54 @@ func TestInitialLoadRequestsStatusAndDoctor(t *testing.T) {
 	runCmd(t, cmd, fake)
 	if !contains(fake.calls, "status") || !contains(fake.calls, "doctor") {
 		t.Fatalf("Init() calls = %q, want status and doctor", fake.calls)
+	}
+}
+
+func TestNoProjectStartsAtProjectLauncherWithoutCallingBackend(t *testing.T) {
+	fake := &fakeTUI{}
+	catalog := &fakeCatalog{}
+	dir := t.TempDir()
+	m := newModelWithCatalog(context.Background(), fake, project.Context{}, Options{Start: dir, Width: 100}, catalog)
+
+	msgs := runCmd(t, m.Init(), fake)
+	if len(msgs) != 1 {
+		t.Fatalf("Init() messages = %d, want project list", len(msgs))
+	}
+	updated, _ := m.Update(msgs[0])
+	m = updated.(model)
+	if len(fake.calls) != 0 {
+		t.Fatalf("backend calls = %q, want none without a project", fake.calls)
+	}
+	if !strings.Contains(m.View(), "Initialize here") {
+		t.Fatalf("launcher missing initialize action: %q", m.View())
+	}
+}
+
+func TestAddProjectInitializesDirectoryAndRegistersIt(t *testing.T) {
+	fake := &fakeTUI{}
+	catalog := &fakeCatalog{}
+	dir := t.TempDir()
+	m := newModelWithCatalog(context.Background(), fake, project.Context{}, Options{Start: dir, Width: 100}, catalog)
+	m.startAdd()
+	m.pathInput.SetValue(dir)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	msgs := runCmd(t, cmd, fake)
+	if len(msgs) != 1 {
+		t.Fatalf("add messages = %d, want one", len(msgs))
+	}
+	updated, _ = m.Update(msgs[0])
+	m = updated.(model)
+
+	if _, err := os.Stat(filepath.Join(dir, "pier.yaml")); err != nil {
+		t.Fatalf("pier.yaml was not created: %v", err)
+	}
+	if len(catalog.projects) != 1 || catalog.projects[0].Path != dir {
+		t.Fatalf("registered projects = %#v, want %s", catalog.projects, dir)
+	}
+	if m.project.Root != dir {
+		t.Fatalf("selected project root = %q, want %q", m.project.Root, dir)
 	}
 }
 
@@ -179,6 +270,18 @@ func TestCopyAndOpenUseSelectedService(t *testing.T) {
 	}
 }
 
+func TestEnterOpensSelectedServiceFromServicePane(t *testing.T) {
+	fake := &fakeTUI{}
+	m := testModel(fake)
+	m.cursor = 1
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(t, cmd, fake)
+	if !contains(fake.calls, "open:api") {
+		t.Fatalf("enter calls = %q, want selected service opened", fake.calls)
+	}
+}
+
 func TestMutationsRequireConfirmationForDeletes(t *testing.T) {
 	fake := &fakeTUI{plan: app.PlanResult{Plan: reconcile.Plan{Operations: []reconcile.Operation{
 		{Kind: reconcile.KindDelete, Before: reconcile.Route{HTTPSPort: 8443, Path: "/"}},
@@ -235,6 +338,116 @@ func TestResizeSwitchesToCompactView(t *testing.T) {
 	}
 	if !strings.Contains(view, ">") {
 		t.Fatalf("missing selected-row marker in %q", view)
+	}
+}
+
+func TestWideViewRendersActivityAsItsOwnPanel(t *testing.T) {
+	m := testModel(&fakeTUI{})
+	m.width = 120
+	m.height = 32
+	m.resizeComponents()
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) < 2 || strings.Count(lines[1], "╭") != 2 {
+		t.Fatalf("wide view should start with a sidebar and project panel\n%s", view)
+	}
+	leftWidth, _, _ := m.widePanelWidths()
+	activityTop := "│" + strings.Repeat(" ", leftWidth-2) + "│╭"
+	if !strings.Contains(view, "\n"+activityTop) {
+		t.Fatalf("activity panel should sit below the project view on the right\n%s", view)
+	}
+	if !strings.Contains(view, iconActivity+" ACTIVITY · greppa") {
+		t.Fatalf("activity panel is not tied to the selected project\n%s", view)
+	}
+}
+
+func TestSelectingProjectStartsFreshProjectActivity(t *testing.T) {
+	m := testModel(&fakeTUI{})
+	m.logInfo("event from previous project")
+	entry := state.ProjectState{ProjectID: "next", Name: "next", Path: "/tmp/next"}
+
+	updated, _ := m.Update(projectAddedMsg{
+		Project: project.Context{ID: "next", Root: "/tmp/next", ConfigPath: "/tmp/next/pier.yaml"},
+		Entry:   entry,
+	})
+	m = updated.(model)
+	activity := m.activityLog.String()
+	if strings.Contains(activity, "previous project") {
+		t.Fatalf("new project activity retained an event from the previous project: %q", activity)
+	}
+	if !strings.Contains(activity, "project ready") {
+		t.Fatalf("new project activity = %q, want project ready event", activity)
+	}
+}
+
+func TestActivityWrapsLongEntriesWithinItsPanel(t *testing.T) {
+	m := testModel(&fakeTUI{})
+	m.width = 160
+	m.height = 32
+	m.resizeComponents()
+	m.resetActivity()
+	m.logInfo("service status refreshed", "services", 123)
+
+	if !strings.Contains(m.activity.View(), "services=123") {
+		t.Fatalf("activity viewport truncated the end of a wrapped entry: %q", m.activity.View())
+	}
+}
+
+func TestServiceRowsUseReadableStatusAndAccessIcons(t *testing.T) {
+	m := testModel(&fakeTUI{})
+	m.width = 120
+	m.doctor.Capabilities.Authenticated = true
+
+	view := m.View()
+	for _, want := range []string{
+		iconConnected + " connected",
+		iconHealthy + " healthy",
+		iconTailnet + " tailnet",
+		iconPublic + " public",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q\n%s", want, view)
+		}
+	}
+}
+
+func TestAddOnServicesOpensServiceForm(t *testing.T) {
+	m := testModel(&fakeTUI{})
+	updated, cmd := m.Update(keyRunes('a'))
+	m = updated.(model)
+	if m.overlay != overlayAddService || m.form == nil {
+		t.Fatalf("overlay = %d form nil=%t, want add-service form", m.overlay, m.form == nil)
+	}
+	if cmd == nil {
+		t.Fatal("add-service form Init() was not returned")
+	}
+}
+
+func TestSpacePausesAndResumesSelectedService(t *testing.T) {
+	fake := &fakeTUI{}
+	m := testModel(fake)
+	m.cursor = 1
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updated.(model)
+	if m.overlay != overlayConfirm || m.confirm != "pause" {
+		t.Fatalf("pause overlay = %d confirm = %q", m.overlay, m.confirm)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	runCmd(t, cmd, fake)
+	if !contains(fake.calls, "pause:api") {
+		t.Fatalf("pause calls = %q", fake.calls)
+	}
+
+	m.status.Services[1].Paused = true
+	m.busy = false
+	m.overlay = overlayNone
+	fake.calls = nil
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	runCmd(t, cmd, fake)
+	if !contains(fake.calls, "resume:api") {
+		t.Fatalf("resume calls = %q", fake.calls)
 	}
 }
 

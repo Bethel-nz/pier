@@ -22,6 +22,9 @@ type App interface {
 	Doctor(ctx context.Context, req app.DoctorRequest) (app.DoctorResult, error)
 	Share(ctx context.Context, req app.ShareRequest) (app.ShareResult, error)
 	Unshare(ctx context.Context, req app.UnshareRequest) (app.UnshareResult, error)
+	Pause(ctx context.Context, req app.PauseRequest) (app.PauseResult, error)
+	Resume(ctx context.Context, req app.ResumeRequest) (app.ResumeResult, error)
+	AddService(ctx context.Context, req app.AddServiceRequest) (app.AddServiceResult, error)
 	Open(ctx context.Context, req app.OpenRequest) (app.OpenResult, error)
 	Copy(ctx context.Context, req app.CopyRequest) (app.CopyResult, error)
 }
@@ -97,6 +100,9 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 		newDoctorCommand(rt),
 		newShareCommand(rt),
 		newUnshareCommand(rt),
+		newPauseCommand(rt),
+		newResumeCommand(rt),
+		newServiceCommand(rt),
 		newOpenCommand(rt),
 		newCopyCommand(rt),
 		newTUICommand(rt),

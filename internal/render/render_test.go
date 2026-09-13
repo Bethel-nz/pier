@@ -26,7 +26,7 @@ func TestStatusTableColumns(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"SERVICE", "TARGET", "PATH", "PUBLIC", "HEALTH", "URL",
+		"SERVICE", "TARGET", "PATH", "PUBLIC", "PAUSED", "HEALTH", "URL",
 		"web", "localhost:3000", "/", "false", "healthy", "https://host.ts.net:8443/",
 		"api", "localhost:4000", "/api",
 		"webhook", "localhost:8787", "/hooks", "true", "unavailable", "https://host.ts.net/hooks",

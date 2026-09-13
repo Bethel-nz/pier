@@ -204,6 +204,21 @@ func (o Options) Unshare(result app.UnshareResult, err error) error {
 	return o.serviceAction("unshare", result.Project, result.Service, result.Plan, err)
 }
 
+// Pause renders one paused service.
+func (o Options) Pause(result app.PauseResult, err error) error {
+	return o.serviceAction("pause", result.Project, result.Service, result.Plan, err)
+}
+
+// Resume renders one resumed service.
+func (o Options) Resume(result app.ResumeResult, err error) error {
+	return o.serviceAction("resume", result.Project, result.Service, result.Plan, err)
+}
+
+// Add renders a newly added service.
+func (o Options) Add(result app.AddServiceResult, err error) error {
+	return o.serviceAction("service add", result.Project, result.Service, reconcile.Plan{}, err)
+}
+
 // URL renders a resolved service URL.
 func (o Options) URL(command string, proj project.Context, url string, err error) error {
 	if o.JSON {
@@ -236,17 +251,18 @@ func (o Options) serviceAction(command string, proj project.Context, service app
 
 func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 	tab := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tab, "SERVICE\tTARGET\tPATH\tPUBLIC\tHEALTH\tURL")
+	fmt.Fprintln(tab, "SERVICE\tTARGET\tPATH\tPUBLIC\tPAUSED\tHEALTH\tURL")
 	for _, service := range services {
 		healthStatus := string(service.Health.Status)
 		if healthStatus == "" {
 			healthStatus = string(health.StatusUnavailable)
 		}
-		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			service.Name,
 			displayTarget(service),
 			service.Path,
 			strconv.FormatBool(service.Public),
+			strconv.FormatBool(service.Paused),
 			healthStatus,
 			service.URL,
 		)

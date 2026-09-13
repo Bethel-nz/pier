@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"sort"
@@ -144,6 +145,7 @@ type ServiceInfo struct {
 	HTTPSPort uint16
 	Path      string
 	Public    bool
+	Paused    bool
 	URL       string
 	Health    health.Result
 }
@@ -230,6 +232,70 @@ func (e *NotConfiguredError) Error() string {
 	return fmt.Sprintf("Pier cannot open or copy %q because it is not currently configured in Tailscale", e.Name)
 }
 
+// ServiceExistsError is a duplicate service name in pier.yaml.
+type ServiceExistsError struct {
+	Name string
+}
+
+func (e *ServiceExistsError) Error() string {
+	return fmt.Sprintf("Pier already has a service named %q", e.Name)
+}
+
+// ServicePausedError is a paused service that currently has no Tailscale route.
+type ServicePausedError struct {
+	Name string
+}
+
+func (e *ServicePausedError) Error() string {
+	return fmt.Sprintf("Pier cannot open or copy %q because it is paused", e.Name)
+}
+
+// PauseRequest removes a service's Tailscale route without touching the local process.
+type PauseRequest struct {
+	Start   string
+	Service string
+	Force   bool
+	Strict  bool
+}
+
+// PauseResult is the service after its route is paused.
+type PauseResult struct {
+	Project project.Context
+	Service ServiceInfo
+	Plan    reconcile.Plan
+}
+
+// ResumeRequest restores a paused service's Tailscale route.
+type ResumeRequest struct {
+	Start   string
+	Service string
+	Force   bool
+	Strict  bool
+}
+
+// ResumeResult is the service after its route is restored.
+type ResumeResult struct {
+	Project project.Context
+	Service ServiceInfo
+	Plan    reconcile.Plan
+}
+
+// AddServiceRequest appends a service to pier.yaml.
+type AddServiceRequest struct {
+	Start    string
+	Name     string
+	Target   string
+	Path     string
+	Public   bool
+	Protocol string
+}
+
+// AddServiceResult is the newly written service.
+type AddServiceResult struct {
+	Project project.Context
+	Service ServiceInfo
+}
+
 // Store persists owned routes and runtime overrides.
 type Store interface {
 	Load(projectID string) (state.ProjectState, error)
@@ -248,16 +314,17 @@ type Tailscale interface {
 
 // Service is the shared CLI/TUI facade.
 type Service struct {
-	find      func(string) (project.Context, error)
-	load      func(string) (config.Config, error)
-	store     Store
-	ts        Tailscale
-	health    func(context.Context, config.ResolvedService) health.Result
-	build     func(desired, actual, owned []reconcile.Route, force bool) reconcile.Plan
-	afterPlan func(plan reconcile.Plan, force bool) error
-	now       func() time.Time
-	openURL   func(context.Context, string) error
-	copyURL   func(context.Context, string) error
+	find       func(string) (project.Context, error)
+	load       func(string) (config.Config, error)
+	store      Store
+	ts         Tailscale
+	health     func(context.Context, config.ResolvedService) health.Result
+	build      func(desired, actual, owned []reconcile.Route, force bool) reconcile.Plan
+	afterPlan  func(plan reconcile.Plan, force bool) error
+	now        func() time.Time
+	openURL    func(context.Context, string) error
+	copyURL    func(context.Context, string) error
+	addService func(path, name string, service config.Service) error
 }
 
 // New constructs the production application service.
@@ -267,15 +334,16 @@ func New(store Store, runner tailscale.Runner) *Service {
 	}
 	actions := platform.Actions{}
 	return &Service{
-		find:    project.Find,
-		load:    config.Load,
-		store:   store,
-		ts:      newLiveTailscale(runner),
-		health:  health.Check,
-		build:   reconcile.Build,
-		now:     time.Now,
-		openURL: actions.Open,
-		copyURL: actions.Copy,
+		find:       project.Find,
+		load:       config.Load,
+		store:      store,
+		ts:         newLiveTailscale(runner),
+		health:     health.Check,
+		build:      reconcile.Build,
+		now:        time.Now,
+		openURL:    actions.Open,
+		copyURL:    actions.Copy,
+		addService: config.AddService,
 	}
 }
 
@@ -299,7 +367,7 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 	if err != nil {
 		return result, err
 	}
-	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, sess.state.Overrides), sess.actual, ownedRoutes(sess.project, sess.state), req.Force)
+	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused), sess.actual, ownedRoutes(sess.project, sess.state), req.Force)
 	result.Plan = sess.plan
 	return result, s.reviewPlan(sess.plan, req.Force)
 }
@@ -321,7 +389,7 @@ func (s *Service) Down(ctx context.Context, req DownRequest) (DownResult, error)
 	if err := s.reviewPlan(sess.plan, false); err != nil {
 		return result, err
 	}
-	if err := s.applyAndPersist(ctx, &sess, sess.state.Overrides); err != nil {
+	if err := s.applyAndPersist(ctx, &sess, sess.state.Overrides, sess.state.Paused); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -340,7 +408,7 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 	return StatusResult{
 		Project:  loaded.project,
 		DNSName:  dns,
-		Services: serviceInfos(services, dns, indexHealth(results)),
+		Services: serviceInfos(services, dns, indexHealth(results), st.Paused),
 	}, nil
 }
 
@@ -362,7 +430,7 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 
 // Share exposes a service through Funnel using the normal reconcile path.
 func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides, _ map[string]bool) error {
 		overrides[req.Service] = true
 		return nil
 	}, req.Service)
@@ -371,11 +439,67 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 
 // Unshare restores the configured public value using the normal reconcile path.
 func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides, _ map[string]bool) error {
 		delete(overrides, req.Service)
 		return nil
 	}, req.Service)
 	return UnshareResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
+}
+
+// Pause removes a service route from Tailscale and leaves the local process running.
+func (s *Service) Pause(ctx context.Context, req PauseRequest) (PauseResult, error) {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(_, paused map[string]bool) error {
+		paused[req.Service] = true
+		return nil
+	}, req.Service)
+	return PauseResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
+}
+
+// Resume restores a paused service route through the normal reconcile path.
+func (s *Service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(_, paused map[string]bool) error {
+		delete(paused, req.Service)
+		return nil
+	}, req.Service)
+	return ResumeResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
+}
+
+// AddService writes a new service into pier.yaml without changing Tailscale routes.
+func (s *Service) AddService(ctx context.Context, req AddServiceRequest) (AddServiceResult, error) {
+	loaded, err := s.loadProject(req.Start, true)
+	result := AddServiceResult{Project: loaded.project}
+	if err != nil {
+		return result, err
+	}
+	if _, err := findService(loaded.cfg, req.Name); err == nil {
+		return result, &ServiceExistsError{Name: req.Name}
+	}
+	write := s.addService
+	if write == nil {
+		write = config.AddService
+	}
+	service := config.Service{Target: req.Target, Path: req.Path, Protocol: req.Protocol}
+	public := req.Public
+	service.Public = &public
+	if err := write(loaded.project.ConfigPath, req.Name, service); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			return result, &ServiceExistsError{Name: req.Name}
+		}
+		return result, fmt.Errorf("Pier could not update project configuration: %w", err)
+	}
+	reloaded, err := s.loadProject(req.Start, true)
+	if err != nil {
+		return result, err
+	}
+	st, _ := s.store.Load(reloaded.project.ID)
+	found, err := findService(reloaded.cfg, req.Name)
+	if err != nil {
+		return result, err
+	}
+	infos := serviceInfos([]config.ResolvedService{found}, s.lookupDNS(ctx, st.DNSName), nil, st.Paused)
+	result.Project = reloaded.project
+	result.Service = infos[0]
+	return result, nil
 }
 
 // OpenRequest looks up a service URL for the platform opener.
@@ -443,6 +567,9 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string) (
 	if found == nil {
 		return "", &ServiceNotFoundError{Name: name}
 	}
+	if found.Paused {
+		return "", &ServicePausedError{Name: name}
+	}
 	actual, err := s.ts.Routes(ctx)
 	if err != nil {
 		return "", fmt.Errorf("Pier could not read Tailscale routes: %w", err)
@@ -456,7 +583,7 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string) (
 	return "", &NotConfiguredError{Name: name}
 }
 
-func (s *Service) reconcile(ctx context.Context, start string, force, strict bool, mutateOverrides func(map[string]bool) error, focus string) (UpResult, error) {
+func (s *Service) reconcile(ctx context.Context, start string, force, strict bool, mutate func(overrides, paused map[string]bool) error, focus string) (UpResult, error) {
 	sess, err := s.prepare(ctx, start)
 	result := UpResult{Project: sess.project}
 	if err != nil {
@@ -468,25 +595,26 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 		}
 	}
 	overrides := copyBoolMap(sess.state.Overrides)
-	if mutateOverrides != nil {
-		if err := mutateOverrides(overrides); err != nil {
+	paused := copyBoolMap(sess.state.Paused)
+	if mutate != nil {
+		if err := mutate(overrides, paused); err != nil {
 			return result, err
 		}
 	}
 	services := effectiveServices(sess.cfg, overrides)
-	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, overrides), sess.actual, ownedRoutes(sess.project, sess.state), force)
+	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, overrides, paused), sess.actual, ownedRoutes(sess.project, sess.state), force)
 	result.Plan = sess.plan
 	if err := s.reviewPlan(sess.plan, force); err != nil {
 		return result, err
 	}
 	healthResults := s.checkTargets(ctx, services)
-	result.Services = serviceInfos(services, sess.dns, indexHealth(healthResults))
+	result.Services = serviceInfos(services, sess.dns, indexHealth(healthResults), paused)
 	if strict {
 		if err := strictHealth(healthResults); err != nil {
 			return result, err
 		}
 	}
-	if err := s.applyAndPersist(ctx, &sess, overrides); err != nil {
+	if err := s.applyAndPersist(ctx, &sess, overrides, paused); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -611,12 +739,13 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 	return results
 }
 
-func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides map[string]bool) error {
+func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool) error {
 	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
 	if err != nil {
 		return &ApplyError{Err: err, Result: result}
 	}
-	if result.Verified == nil {
+	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
+	if result.Verified == nil && !pausedChanged {
 		return nil
 	}
 	st := sess.state
@@ -628,8 +757,11 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides 
 	st.Path = sess.project.Root
 	st.DNSName = sess.dns
 	st.ConfigHash = configHash(sess.project.ConfigPath)
-	st.Routes = nextOwned(st.Routes, result.Completed)
-	st.Overrides = overrides
+	if result.Verified != nil {
+		st.Routes = nextOwned(st.Routes, result.Completed)
+		st.Overrides = overrides
+	}
+	st.Paused = compactBoolMap(paused)
 	if s.now != nil {
 		st.UpdatedAt = s.now()
 	} else {
@@ -690,8 +822,16 @@ func effectiveServices(cfg config.Project, overrides map[string]bool) []config.R
 	return services
 }
 
-func desiredRoutes(proj project.Context, cfg config.Project, overrides map[string]bool) []reconcile.Route {
-	return routesFromServices(proj, effectiveServices(cfg, overrides))
+func desiredRoutes(proj project.Context, cfg config.Project, overrides, paused map[string]bool) []reconcile.Route {
+	services := effectiveServices(cfg, overrides)
+	active := make([]config.ResolvedService, 0, len(services))
+	for _, service := range services {
+		if paused[service.Name] {
+			continue
+		}
+		active = append(active, service)
+	}
+	return routesFromServices(proj, active)
 }
 
 func routesFromServices(proj project.Context, services []config.ResolvedService) []reconcile.Route {
@@ -751,7 +891,7 @@ func nextOwned(prev []state.Route, completed []reconcile.Operation) []state.Rout
 	return routes
 }
 
-func serviceInfos(services []config.ResolvedService, dns string, healthByName map[string]health.Result) []ServiceInfo {
+func serviceInfos(services []config.ResolvedService, dns string, healthByName map[string]health.Result, paused map[string]bool) []ServiceInfo {
 	infos := make([]ServiceInfo, 0, len(services))
 	for _, service := range services {
 		info := ServiceInfo{
@@ -762,6 +902,7 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			HTTPSPort: service.HTTPSPort,
 			Path:      service.Path,
 			Public:    service.Public,
+			Paused:    paused[service.Name],
 			URL:       serviceURL(dns, service.HTTPSPort, service.Path),
 			Health:    healthByName[service.Name],
 		}
@@ -771,6 +912,22 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 		infos = append(infos, info)
 	}
 	return infos
+}
+
+func compactBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		if value {
+			out[key] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func indexHealth(results []health.Result) map[string]health.Result {
