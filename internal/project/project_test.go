@@ -50,6 +50,35 @@ func TestFindUsesExplicitConfigPath(t *testing.T) {
 	}
 }
 
+func TestFindCreatesMissingProjectIDForHandAuthoredConfig(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pier.yaml"), "version: 1\nname: hand-authored\nservices: {}\n")
+
+	context, err := Find(root)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(context.ID) {
+		t.Errorf("Find() ID = %q, want UUID-shaped identifier", context.ID)
+	}
+
+	idPath := filepath.Join(root, ".pier", "id")
+	contents, err := os.ReadFile(idPath)
+	if err != nil {
+		t.Fatalf("read generated project ID: %v", err)
+	}
+	if string(contents) != context.ID+"\n" {
+		t.Errorf("generated project ID = %q, want returned ID followed by newline", contents)
+	}
+	info, err := os.Stat(idPath)
+	if err != nil {
+		t.Fatalf("stat generated project ID: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("generated project ID permissions = %#o, want 0600", info.Mode().Perm())
+	}
+}
+
 func TestFindReturnsInitInstructionWhenNoConfigExists(t *testing.T) {
 	context, err := Find(t.TempDir())
 	if context != (Context{}) {
