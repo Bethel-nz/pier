@@ -15,6 +15,7 @@ import (
 
 	"pier/internal/config"
 	"pier/internal/health"
+	"pier/internal/platform"
 	"pier/internal/project"
 	"pier/internal/reconcile"
 	"pier/internal/state"
@@ -213,6 +214,15 @@ func (e *ServiceNotFoundError) Error() string {
 	return fmt.Sprintf("Pier could not find a service named %q", e.Name)
 }
 
+// NotConfiguredError is a service that exists in pier.yaml but not in Tailscale.
+type NotConfiguredError struct {
+	Name string
+}
+
+func (e *NotConfiguredError) Error() string {
+	return fmt.Sprintf("Pier cannot open or copy %q because it is not currently configured in Tailscale", e.Name)
+}
+
 // Store persists owned routes and runtime overrides.
 type Store interface {
 	Load(projectID string) (state.ProjectState, error)
@@ -239,6 +249,8 @@ type Service struct {
 	build     func(desired, actual, owned []reconcile.Route, force bool) reconcile.Plan
 	afterPlan func(plan reconcile.Plan, force bool) error
 	now       func() time.Time
+	openURL   func(context.Context, string) error
+	copyURL   func(context.Context, string) error
 }
 
 // New constructs the production application service.
@@ -246,14 +258,17 @@ func New(store Store, runner tailscale.Runner) *Service {
 	if runner == nil {
 		runner = tailscale.ExecRunner{}
 	}
+	actions := platform.Actions{}
 	return &Service{
-		find:   project.Find,
-		load:   config.Load,
-		store:  store,
-		ts:     newLiveTailscale(runner),
-		health: health.Check,
-		build:  reconcile.Build,
-		now:    time.Now,
+		find:    project.Find,
+		load:    config.Load,
+		store:   store,
+		ts:      newLiveTailscale(runner),
+		health:  health.Check,
+		build:   reconcile.Build,
+		now:     time.Now,
+		openURL: actions.Open,
+		copyURL: actions.Copy,
 	}
 }
 
@@ -378,29 +393,60 @@ type CopyResult struct {
 	URL string
 }
 
-// Open resolves the current URL for a named service.
+// Open resolves the current URL for a named service and opens it.
 func (s *Service) Open(ctx context.Context, req OpenRequest) (OpenResult, error) {
-	url, err := s.lookupServiceURL(ctx, req.Start, req.Service)
-	return OpenResult{URL: url}, err
+	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service)
+	if err != nil {
+		return OpenResult{}, err
+	}
+	if s.openURL != nil {
+		if err := s.openURL(ctx, url); err != nil {
+			return OpenResult{URL: url}, err
+		}
+	}
+	return OpenResult{URL: url}, nil
 }
 
-// Copy resolves the current URL for a named service.
+// Copy resolves the current URL for a named service and copies it.
 func (s *Service) Copy(ctx context.Context, req CopyRequest) (CopyResult, error) {
-	url, err := s.lookupServiceURL(ctx, req.Start, req.Service)
-	return CopyResult{URL: url}, err
+	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service)
+	if err != nil {
+		return CopyResult{}, err
+	}
+	if s.copyURL != nil {
+		if err := s.copyURL(ctx, url); err != nil {
+			return CopyResult{URL: url}, err
+		}
+	}
+	return CopyResult{URL: url}, nil
 }
 
-func (s *Service) lookupServiceURL(ctx context.Context, start, name string) (string, error) {
+func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string) (string, error) {
 	status, err := s.Status(ctx, StatusRequest{Start: start})
 	if err != nil {
 		return "", err
 	}
-	for _, service := range status.Services {
-		if service.Name == name {
-			return service.URL, nil
+	var found *ServiceInfo
+	for i := range status.Services {
+		if status.Services[i].Name == name {
+			found = &status.Services[i]
+			break
 		}
 	}
-	return "", &ServiceNotFoundError{Name: name}
+	if found == nil {
+		return "", &ServiceNotFoundError{Name: name}
+	}
+	actual, err := s.ts.Routes(ctx)
+	if err != nil {
+		return "", fmt.Errorf("Pier could not read Tailscale routes: %w", err)
+	}
+	key := reconcile.Route{HTTPSPort: found.HTTPSPort, Path: found.Path}.Key()
+	for _, route := range actual {
+		if route.Key() == key {
+			return found.URL, nil
+		}
+	}
+	return "", &NotConfiguredError{Name: name}
 }
 
 func (s *Service) reconcile(ctx context.Context, start string, force, strict bool, mutateOverrides func(map[string]bool) error, focus string) (UpResult, error) {
