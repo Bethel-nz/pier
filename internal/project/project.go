@@ -104,14 +104,12 @@ func contextForConfig(configPath string) (Context, error) {
 	}
 
 	root := filepath.Dir(configPath)
-	id, created, err := ensureProjectID(root)
+	id, _, err := ensureProjectID(root)
 	if err != nil {
 		return Context{}, err
 	}
-	if created {
-		if err := ensureGitignore(root); err != nil {
-			return Context{}, err
-		}
+	if err := ensureGitignore(root); err != nil {
+		return Context{}, err
 	}
 	return Context{Root: root, ConfigPath: configPath, ID: id}, nil
 }

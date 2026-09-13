@@ -101,6 +101,29 @@ func TestFindRejectsIncompleteProjectID(t *testing.T) {
 	}
 }
 
+func TestFindRepairsIgnoreForExistingProjectID(t *testing.T) {
+	root := t.TempDir()
+	const id = "85c4cfe4-4ee1-4f41-9417-c8c5d80d1570"
+	writeFile(t, filepath.Join(root, "pier.yaml"), "version: 1\nname: legacy\nservices: {}\n")
+	writeFile(t, filepath.Join(root, ".pier", "id"), id+"\n")
+	writeFile(t, filepath.Join(root, ".gitignore"), "dist/\n")
+
+	context, err := Find(root)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if context.ID != id {
+		t.Errorf("Find() ID = %q, want existing ID %q", context.ID, id)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(gitignore) != "dist/\n.pier/\n" {
+		t.Errorf(".gitignore = %q, want existing entries plus .pier/", gitignore)
+	}
+}
+
 func TestFindReturnsInitInstructionWhenNoConfigExists(t *testing.T) {
 	context, err := Find(t.TempDir())
 	if context != (Context{}) {
