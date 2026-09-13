@@ -356,6 +356,53 @@ func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResul
 	return UnshareResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
 }
 
+// OpenRequest looks up a service URL for the platform opener.
+type OpenRequest struct {
+	Start   string
+	Service string
+}
+
+// OpenResult is the resolved service URL.
+type OpenResult struct {
+	URL string
+}
+
+// CopyRequest looks up a service URL for the clipboard.
+type CopyRequest struct {
+	Start   string
+	Service string
+}
+
+// CopyResult is the resolved service URL after a successful copy.
+type CopyResult struct {
+	URL string
+}
+
+// Open resolves the current URL for a named service.
+func (s *Service) Open(ctx context.Context, req OpenRequest) (OpenResult, error) {
+	url, err := s.lookupServiceURL(ctx, req.Start, req.Service)
+	return OpenResult{URL: url}, err
+}
+
+// Copy resolves the current URL for a named service.
+func (s *Service) Copy(ctx context.Context, req CopyRequest) (CopyResult, error) {
+	url, err := s.lookupServiceURL(ctx, req.Start, req.Service)
+	return CopyResult{URL: url}, err
+}
+
+func (s *Service) lookupServiceURL(ctx context.Context, start, name string) (string, error) {
+	status, err := s.Status(ctx, StatusRequest{Start: start})
+	if err != nil {
+		return "", err
+	}
+	for _, service := range status.Services {
+		if service.Name == name {
+			return service.URL, nil
+		}
+	}
+	return "", &ServiceNotFoundError{Name: name}
+}
+
 func (s *Service) reconcile(ctx context.Context, start string, force, strict bool, mutateOverrides func(map[string]bool) error, focus string) (UpResult, error) {
 	sess, err := s.prepare(ctx, start)
 	result := UpResult{Project: sess.project}
