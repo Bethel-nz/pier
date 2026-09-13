@@ -8,11 +8,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 // ErrNotFound indicates that no Pier configuration could be found.
 var ErrNotFound = errors.New("Pier project not found")
+
+var projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // Context identifies a Pier project's files.
 type Context struct {
@@ -71,7 +74,7 @@ func Init(dir, name string) (Context, error) {
 		return Context{}, fmt.Errorf("inspect project configuration: %w", err)
 	}
 
-	id, err := ensureProjectID(root)
+	id, _, err := ensureProjectID(root)
 	if err != nil {
 		return Context{}, err
 	}
@@ -101,44 +104,73 @@ func contextForConfig(configPath string) (Context, error) {
 	}
 
 	root := filepath.Dir(configPath)
-	id, err := ensureProjectID(root)
+	id, created, err := ensureProjectID(root)
 	if err != nil {
 		return Context{}, err
+	}
+	if created {
+		if err := ensureGitignore(root); err != nil {
+			return Context{}, err
+		}
 	}
 	return Context{Root: root, ConfigPath: configPath, ID: id}, nil
 }
 
-func ensureProjectID(root string) (string, error) {
+func ensureProjectID(root string) (string, bool, error) {
 	path := filepath.Join(root, ".pier", "id")
 	contents, err := os.ReadFile(path)
 	if err == nil {
-		return strings.TrimSpace(string(contents)), nil
+		id, err := parseProjectID(path, contents)
+		return id, false, err
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("read project ID: %w", err)
+		return "", false, fmt.Errorf("read project ID: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("create project state directory: %w", err)
+		return "", false, fmt.Errorf("create project state directory: %w", err)
 	}
 	id, err := newID()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".id-*")
+	if err != nil {
+		return "", false, fmt.Errorf("create temporary project ID: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return "", false, fmt.Errorf("set temporary project ID permissions: %w", err)
+	}
+	if _, err := temporary.WriteString(id + "\n"); err != nil {
+		temporary.Close()
+		return "", false, fmt.Errorf("write temporary project ID: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return "", false, fmt.Errorf("close temporary project ID: %w", err)
+	}
+
+	err = os.Link(temporaryPath, path)
 	if errors.Is(err, fs.ErrExist) {
 		contents, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return "", fmt.Errorf("read concurrently created project ID: %w", readErr)
+			return "", false, fmt.Errorf("read concurrently created project ID: %w", readErr)
 		}
-		return strings.TrimSpace(string(contents)), nil
+		concurrentID, parseErr := parseProjectID(path, contents)
+		return concurrentID, false, parseErr
 	}
 	if err != nil {
-		return "", fmt.Errorf("create project ID: %w", err)
+		return "", false, fmt.Errorf("publish project ID: %w", err)
 	}
-	defer file.Close()
-	if _, err := file.WriteString(id + "\n"); err != nil {
-		return "", fmt.Errorf("write project ID: %w", err)
+	return id, true, nil
+}
+
+func parseProjectID(path string, contents []byte) (string, error) {
+	id := strings.TrimSpace(string(contents))
+	if !projectIDPattern.MatchString(id) {
+		return "", fmt.Errorf("invalid project ID in %s", path)
 	}
 	return id, nil
 }

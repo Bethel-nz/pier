@@ -53,6 +53,7 @@ func TestFindUsesExplicitConfigPath(t *testing.T) {
 func TestFindCreatesMissingProjectIDForHandAuthoredConfig(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "pier.yaml"), "version: 1\nname: hand-authored\nservices: {}\n")
+	writeFile(t, filepath.Join(root, ".gitignore"), "dist/\n")
 
 	context, err := Find(root)
 	if err != nil {
@@ -76,6 +77,27 @@ func TestFindCreatesMissingProjectIDForHandAuthoredConfig(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("generated project ID permissions = %#o, want 0600", info.Mode().Perm())
+	}
+	gitignore, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(gitignore) != "dist/\n.pier/\n" {
+		t.Errorf(".gitignore = %q, want existing entries plus .pier/", gitignore)
+	}
+}
+
+func TestFindRejectsIncompleteProjectID(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pier.yaml"), "version: 1\nname: hand-authored\nservices: {}\n")
+	writeFile(t, filepath.Join(root, ".pier", "id"), "\n")
+
+	context, err := Find(root)
+	if err == nil {
+		t.Fatal("Find() error = nil, want incomplete project ID error")
+	}
+	if context != (Context{}) {
+		t.Errorf("Find() context = %#v, want empty context", context)
 	}
 }
 
