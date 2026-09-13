@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
+	"strings"
 )
 
 const (
@@ -100,7 +101,7 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	status, err := c.Status(ctx)
 	if err != nil {
 		var commandErr *CommandError
-		if errors.As(err, &commandErr) && commandErr.Kind == ErrorCommandFailed {
+		if errors.As(err, &commandErr) && commandErr.Kind == ErrorCommandFailed && daemonUnavailableDiagnostic(commandErr.stderr) {
 			return capabilities, &CommandError{
 				Kind:    ErrorDaemonUnavailable,
 				summary: "Tailscale is installed, but its daemon is not running",
@@ -134,11 +135,15 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	_, stderr, err = c.runner.Run(ctx, name, args...)
 	if err != nil {
 		commandErr := classifyRunError(ctx, err, stderr, "Unable to read Tailscale Funnel status")
-		if commandErr.Kind == ErrorCanceled || commandErr.Kind == ErrorMissingExecutable {
+		if commandErr.Kind != ErrorCommandFailed || !funnelUnauthorizedDiagnostic(commandErr.stderr) {
 			return capabilities, commandErr
 		}
-		if capabilities.Funnel {
-			return capabilities, commandErr
+		capabilities.Funnel = false
+		return capabilities, &CommandError{
+			Kind:    ErrorFunnelUnauthorized,
+			summary: "Tailscale Funnel is not authorized for this device",
+			stderr:  commandErr.stderr,
+			cause:   commandErr.cause,
 		}
 	}
 	if !capabilities.Funnel {
@@ -151,6 +156,19 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	}
 
 	return capabilities, nil
+}
+
+func daemonUnavailableDiagnostic(stderr string) bool {
+	diagnostic := strings.ToLower(stderr)
+	return strings.Contains(diagnostic, "tailscaled") &&
+		(strings.Contains(diagnostic, "not running") || strings.Contains(diagnostic, "doesn't appear to be running"))
+}
+
+func funnelUnauthorizedDiagnostic(stderr string) bool {
+	diagnostic := strings.ToLower(stderr)
+	return strings.Contains(diagnostic, "funnel is not enabled") ||
+		strings.Contains(diagnostic, "funnel authorization required") ||
+		strings.Contains(diagnostic, "not authorized to use funnel")
 }
 
 // Status reads and decodes node/session status without reading route handlers.

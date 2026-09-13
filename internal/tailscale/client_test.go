@@ -81,6 +81,20 @@ func TestClientCheck(t *testing.T) {
 		)
 	})
 
+	t.Run("preserves a generic node status command failure", func(t *testing.T) {
+		runner := &fakeRunner{queued: []fakeResponse{
+			{out: []byte("1.88.2\n")},
+			{err: []byte("local API request failed unexpectedly\n"), runErr: errors.New("exit status 1")},
+		}}
+
+		capabilities, err := NewClient(runner).Check(context.Background())
+
+		if capabilities != (Capabilities{Installed: true}) {
+			t.Errorf("Check() capabilities = %#v, want installed-only result", capabilities)
+		}
+		assertCommandError(t, err, ErrorCommandFailed, "Unable to read Tailscale status", "local API request failed unexpectedly\n")
+	})
+
 	t.Run("distinguishes a stopped backend from a missing executable", func(t *testing.T) {
 		runner := &fakeRunner{queued: []fakeResponse{
 			{out: []byte("1.88.2\n")},
@@ -172,6 +186,28 @@ func TestClientCheck(t *testing.T) {
 		)
 	})
 
+	t.Run("preserves a generic Funnel status command failure", func(t *testing.T) {
+		statusWithoutFunnel := []byte(`{
+			"BackendState": "Running",
+			"HaveNodeKey": true,
+			"Self": {"CapMap": {"https": null}},
+			"CurrentTailnet": {"MagicDNSEnabled": true}
+		}`)
+		runner := &fakeRunner{queued: []fakeResponse{
+			{out: []byte("1.88.2\n")},
+			{out: statusWithoutFunnel},
+			{err: []byte("local API request failed unexpectedly\n"), runErr: errors.New("exit status 1")},
+		}}
+
+		capabilities, err := NewClient(runner).Check(context.Background())
+
+		want := Capabilities{Installed: true, DaemonRunning: true, Authenticated: true, MagicDNS: true, HTTPS: true}
+		if capabilities != want {
+			t.Errorf("Check() capabilities = %#v, want %#v", capabilities, want)
+		}
+		assertCommandError(t, err, ErrorCommandFailed, "Unable to read Tailscale Funnel status", "local API request failed unexpectedly\n")
+	})
+
 	t.Run("preserves raw stderr for verbose rendering without exposing it by default", func(t *testing.T) {
 		const rawStderr = "backend secret diagnostic: socket=/private/path\n"
 		runner := &fakeRunner{queued: []fakeResponse{
@@ -181,7 +217,7 @@ func TestClientCheck(t *testing.T) {
 
 		_, err := NewClient(runner).Check(context.Background())
 
-		commandErr := assertCommandError(t, err, ErrorDaemonUnavailable, "Tailscale is installed, but its daemon is not running", rawStderr)
+		commandErr := assertCommandError(t, err, ErrorCommandFailed, "Unable to read Tailscale status", rawStderr)
 		if strings.Contains(commandErr.Error(), rawStderr) || strings.Contains(commandErr.Error(), "socket=/private/path") {
 			t.Errorf("default error %q exposes raw stderr", commandErr.Error())
 		}
