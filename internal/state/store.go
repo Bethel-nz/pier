@@ -71,7 +71,7 @@ func (s *Store) Save(state ProjectState) error {
 	}
 	contents = append(contents, '\n')
 
-	temporary, err := os.CreateTemp(s.dir, "."+state.ProjectID+".*.tmp")
+	temporary, err := os.CreateTemp(s.dir, "."+fileID(state.ProjectID)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary project state: %w", err)
 	}
@@ -111,5 +111,13 @@ func (s *Store) Delete(projectID string) error {
 }
 
 func (s *Store) pathFor(projectID string) string {
-	return filepath.Join(s.dir, projectID+".json")
+	return filepath.Join(s.dir, fileID(projectID)+".json")
+}
+
+func fileID(projectID string) string {
+	id := filepath.Base(filepath.Clean(projectID))
+	if id == "." || id == ".." || id == "" {
+		return "project"
+	}
+	return id
 }

@@ -17,15 +17,13 @@ See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and [
 
 ## Install
 
-```bash
-go install pier@latest
-```
-
 From this repository:
 
 ```bash
 go install ./cmd/pier
 ```
+
+That puts `pier` in `$(go env GOPATH)/bin` (or `GOBIN` if set). Add that directory to your `PATH`.
 
 ## Quick start
 

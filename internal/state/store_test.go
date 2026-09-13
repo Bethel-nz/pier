@@ -169,6 +169,26 @@ func TestLoadUnsupportedVersionReturnsMigrationError(t *testing.T) {
 	}
 }
 
+func TestPathForStaysInsideStoreRoot(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	id := "../escape"
+	if err := store.Save(ProjectState{Version: CurrentVersion, ProjectID: id}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	escaped := filepath.Join(filepath.Dir(dir), "escape.json")
+	if _, err := os.Stat(escaped); err == nil {
+		t.Fatalf("Save() wrote outside the store root: %s", escaped)
+	}
+	got, err := store.Load(id)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ProjectID != id {
+		t.Fatalf("Load() ProjectID = %q", got.ProjectID)
+	}
+}
+
 func TestDeleteRemovesState(t *testing.T) {
 	store := New(t.TempDir())
 	projectID := "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff"

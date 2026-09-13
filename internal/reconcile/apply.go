@@ -57,12 +57,16 @@ func Apply(ctx context.Context, plan Plan, driver Driver) (ApplyResult, error) {
 	for _, op := range mutations {
 		if err := driver.Apply(ctx, op); err != nil {
 			failed := op
-			actual, _ := driver.Routes(ctx)
-			return ApplyResult{
+			actual, routesErr := driver.Routes(ctx)
+			result := ApplyResult{
 				Completed: append([]Operation(nil), completed...),
 				Failed:    &failed,
 				Actual:    actual,
-			}, err
+			}
+			if routesErr != nil {
+				return result, errors.Join(err, fmt.Errorf("unable to re-read Tailscale routes: %w", routesErr))
+			}
+			return result, err
 		}
 		completed = append(completed, op)
 	}

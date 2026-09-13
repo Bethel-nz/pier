@@ -2,6 +2,7 @@
 package project
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ErrNotFound indicates that no Pier configuration could be found.
@@ -79,8 +82,11 @@ func Init(dir, name string) (Context, error) {
 		return Context{}, err
 	}
 
-	contents := fmt.Sprintf("version: 1\nname: %s\n\nservices:\n  web:\n    target: localhost:3000\n    public: false\n", name)
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+	contents, err := encodeInitConfig(name)
+	if err != nil {
+		return Context{}, err
+	}
+	if err := os.WriteFile(configPath, contents, 0o644); err != nil {
 		return Context{}, fmt.Errorf("write project configuration: %w", err)
 	}
 	if err := ensureGitignore(root); err != nil {
@@ -88,6 +94,37 @@ func Init(dir, name string) (Context, error) {
 	}
 
 	return Context{Root: root, ConfigPath: configPath, ID: id}, nil
+}
+
+func encodeInitConfig(name string) ([]byte, error) {
+	public := false
+	doc := struct {
+		Version  int    `yaml:"version"`
+		Name     string `yaml:"name"`
+		Services map[string]struct {
+			Target string `yaml:"target"`
+			Public *bool  `yaml:"public"`
+		} `yaml:"services"`
+	}{
+		Version: 1,
+		Name:    name,
+		Services: map[string]struct {
+			Target string `yaml:"target"`
+			Public *bool  `yaml:"public"`
+		}{
+			"web": {Target: "localhost:3000", Public: &public},
+		},
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, fmt.Errorf("encode project configuration: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("encode project configuration: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 func contextForConfig(configPath string) (Context, error) {

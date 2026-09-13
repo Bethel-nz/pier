@@ -233,6 +233,21 @@ func TestInitDoesNotDuplicatePierIgnoreEntry(t *testing.T) {
 	}
 }
 
+func TestInitEscapesYAMLSpecialNames(t *testing.T) {
+	root := t.TempDir()
+	context, err := Init(root, "app: prod")
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	raw, err := config.Load(context.ConfigPath)
+	if err != nil {
+		t.Fatalf("load initialized config: %v", err)
+	}
+	if raw.Name != "app: prod" {
+		t.Fatalf("Init() name = %q, want quoted YAML name to round-trip", raw.Name)
+	}
+}
+
 func writeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -24,8 +24,8 @@ type Capabilities struct {
 	Funnel        bool
 }
 
-// Status contains the node and session state reported by tailscale status.
-// Route state is deliberately decoded separately from Serve and Funnel status.
+// Status holds node/session fields from `tailscale status --json` and, when
+// filled by ParseStatus, Serve/Funnel routes. Client.Status does not populate Routes.
 type Status struct {
 	DNSName      string
 	Routes       []Route
