@@ -1,0 +1,50 @@
+{
+  "TCP": {
+    "80": {
+      "HTTP": true
+    },
+    "443": {
+      "HTTPS": true
+    },
+    "8443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "pier-test.example.ts.net:80": {
+      "Handlers": {
+        "/ignored-http": {
+          "Proxy": "http://127.0.0.1:8080"
+        }
+      }
+    },
+    "pier-test.example.ts.net:8443": {
+      "Handlers": {
+        "/api": {
+          "Proxy": "http://127.0.0.1:3100"
+        },
+        "/": {
+          "Proxy": "http://127.0.0.1:3000"
+        }
+      }
+    },
+    "pier-test.example.ts.net:443": {
+      "Handlers": {
+        "/api": {
+          "Proxy": "http://127.0.0.1:4000",
+          "FutureHandlerField": "ignored"
+        },
+        "/": {
+          "Proxy": "http://127.0.0.1:4100"
+        }
+      }
+    }
+  },
+  "AllowFunnel": {
+    "pier-test.example.ts.net:443": true,
+    "pier-test.example.ts.net:8443": false
+  },
+  "FutureTopLevelField": {
+    "ignored": true
+  }
+}

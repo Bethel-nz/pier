@@ -28,6 +28,7 @@ type Capabilities struct {
 // Route state is deliberately decoded separately from Serve and Funnel status.
 type Status struct {
 	DNSName      string
+	Routes       []Route
 	BackendState string
 	HaveNodeKey  bool
 	MagicDNS     bool
