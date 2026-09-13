@@ -121,7 +121,26 @@ Then delete `pier.yaml` and `.pier/` if you no longer want the project. Runtime 
 
 ## Verify
 
-Package tests and a local smoke script are documented in [`docs/architecture.md`](docs/architecture.md). Live Tailscale application is gated behind `PIER_SMOKE_APPLY=1`.
+CI runs `gofmt`, `go vet ./...`, and `go test ./...`. Tailscale is not required in CI.
+
+Local checks:
+
+```bash
+gofmt -w .
+go vet ./...
+go test ./...
+./scripts/smoke.sh
+```
+
+`./scripts/smoke.sh` starts two loopback HTTP servers, writes a temporary `pier.yaml`, and runs `pier validate` and `pier plan`. It does not change Tailscale routes unless you set `PIER_SMOKE_APPLY=1`.
+
+```bash
+PIER_SMOKE_APPLY=1 ./scripts/smoke.sh
+```
+
+That apply path needs a disposable Tailscale node authorized for Serve (and Funnel if you add public routes). `pier down` runs in a trap and the script checks that unrelated Tailscale routes are unchanged.
+
+Do not tag `v0.1.0` until that live run and a TUI pass have been done on a real node.
 
 ## License
 
