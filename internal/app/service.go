@@ -128,6 +128,13 @@ type UnshareResult struct {
 	Plan    reconcile.Plan
 }
 
+// OperationResult is a completed mutating action for the TUI.
+type OperationResult struct {
+	Command  string
+	Plan     reconcile.Plan
+	Services []ServiceInfo
+}
+
 // ServiceInfo is one configured service as presented to CLI and TUI.
 type ServiceInfo struct {
 	Name      string

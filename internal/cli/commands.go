@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"pier/internal/app"
 	"pier/internal/project"
 	"pier/internal/render"
+	"pier/internal/tui"
 )
 
 func (rt *runtime) renderer(command string) render.Options {
@@ -157,6 +159,28 @@ func newOpenCommand(rt *runtime) *cobra.Command {
 			return rt.renderer("open").URL("open", app.StatusResult{}.Project, result.URL, err)
 		},
 	}
+}
+
+func newTUICommand(rt *runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Open the interactive management interface",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runTUI(cmd.Context(), rt)
+		},
+	}
+}
+
+func runTUI(ctx context.Context, rt *runtime) error {
+	svc, ok := rt.app.(*app.Service)
+	if !ok {
+		return fmt.Errorf("Pier TUI requires the application service")
+	}
+	proj, err := project.Find(rt.start())
+	if err != nil {
+		return err
+	}
+	return tui.Run(ctx, svc, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
 }
 
 func newCopyCommand(rt *runtime) *cobra.Command {

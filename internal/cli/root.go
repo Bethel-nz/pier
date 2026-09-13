@@ -9,6 +9,7 @@ import (
 	"pier/internal/app"
 	"pier/internal/state"
 	"pier/internal/tailscale"
+	"pier/internal/tui"
 )
 
 // App is the CLI's view of the shared application service.
@@ -80,6 +81,12 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&rt.noColor, "no-color", false, "disable color output")
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if tui.StdioIsTTY() {
+			return runTUI(cmd.Context(), rt)
+		}
+		return cmd.Help()
+	}
 	cmd.AddCommand(
 		newInitCommand(rt),
 		newValidateCommand(rt),
@@ -92,6 +99,7 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 		newUnshareCommand(rt),
 		newOpenCommand(rt),
 		newCopyCommand(rt),
+		newTUICommand(rt),
 	)
 	return cmd
 }
