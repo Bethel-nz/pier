@@ -91,6 +91,7 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 		return cmd.Help()
 	}
 	cmd.AddCommand(
+		newAgentsCommand(rt),
 		newInitCommand(rt),
 		newValidateCommand(rt),
 		newPlanCommand(rt),

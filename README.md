@@ -72,6 +72,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 
 | Command | What it does |
 | --- | --- |
+| `pier agents [--write]` | Print an agent-ready Pier setup prompt, or write it to `AGENTS.md` |
 | `pier init [name]` | Create a minimal `pier.yaml` and `.pier/id` |
 | `pier validate` | Schema and semantic checks without requiring services to run |
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
