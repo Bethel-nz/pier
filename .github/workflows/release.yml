@@ -1,0 +1,63 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          build_unix() {
+            local os="$1"
+            local arch="$2"
+            local directory="dist/pier_${os}_${arch}"
+            mkdir -p "$directory"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$directory/pier" ./cmd/pier
+            tar -czf "dist/pier_${os}_${arch}.tar.gz" -C "$directory" pier
+          }
+
+          build_windows() {
+            local arch="$1"
+            local directory="dist/pier_windows_${arch}"
+            mkdir -p "$directory"
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$directory/pier.exe" ./cmd/pier
+            (cd "$directory" && zip -q "../pier_windows_${arch}.zip" pier.exe)
+          }
+
+          build_unix darwin amd64
+          build_unix darwin arm64
+          build_unix linux amd64
+          build_unix linux arm64
+          build_windows amd64
+          build_windows arm64
+
+          cd dist
+          sha256sum pier_*.tar.gz pier_*.zip > checksums.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/pier_*.tar.gz \
+            dist/pier_*.zip \
+            dist/checksums.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "Pier ${GITHUB_REF_NAME}"

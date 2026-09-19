@@ -21,6 +21,7 @@ func TestAgentsPrintsSetupPrompt(t *testing.T) {
 		"pier service add --help",
 		"pier validate",
 		"pier plan",
+		"https://github.com/Bethel-nz/pier/tree/main/examples/configs",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("agents output missing %q:\n%s", want, stdout)

@@ -41,6 +41,13 @@ services:
 
 v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 
+## Examples
+
+- [`basic.yaml`](../examples/configs/basic.yaml) shows the smallest private service configuration.
+- [`multiple-services.yaml`](../examples/configs/multiple-services.yaml) shows path routing for multiple services and a per-service HTTPS upstream.
+- [`public-webhook.yaml`](../examples/configs/public-webhook.yaml) keeps the main app private while exposing only a webhook through Funnel.
+- [`bun-server`](../examples/bun-server/) is a runnable local demo and remains private by default.
+
 ## Listeners
 
 - `public: false` → Tailscale Serve on HTTPS port `8443`

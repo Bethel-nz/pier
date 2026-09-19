@@ -17,7 +17,21 @@ See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and [
 
 ## Install
 
-From this repository:
+macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.ps1 | iex
+```
+
+The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory. Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
+
+From a source checkout:
 
 ```bash
 go install ./cmd/pier
@@ -67,6 +81,13 @@ services:
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
 A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration details are in [`docs/configuration.md`](docs/configuration.md).
+
+## Configuration examples
+
+- [`examples/configs/basic.yaml`](examples/configs/basic.yaml) — one private HTTP service.
+- [`examples/configs/multiple-services.yaml`](examples/configs/multiple-services.yaml) — several private services on separate paths, including an HTTPS upstream.
+- [`examples/configs/public-webhook.yaml`](examples/configs/public-webhook.yaml) — a private app with one public Funnel webhook.
+- [`examples/bun-server/`](examples/bun-server/) — a runnable Bun server demo with its own `pier.yaml`.
 
 ## CLI
 

@@ -1,0 +1,16 @@
+version: 1
+name: webhook-app
+
+defaults:
+  public: false
+  protocol: http
+
+services:
+  app:
+    target: localhost:3000
+    path: /
+
+  webhook:
+    target: localhost:8787
+    path: /hooks
+    public: true

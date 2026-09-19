@@ -1,0 +1,20 @@
+version: 1
+name: full-stack-app
+
+defaults:
+  public: false
+  protocol: http
+
+services:
+  web:
+    target: localhost:3000
+    path: /
+
+  api:
+    target: localhost:4000
+    path: /api
+
+  admin:
+    target: localhost:5000
+    path: /admin
+    protocol: https

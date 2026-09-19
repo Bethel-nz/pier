@@ -38,6 +38,8 @@ services:
 - protocol is http or https and describes the local upstream.
 - public: false uses Tailscale Serve for tailnet-only access. public: true uses Tailscale Funnel and exposes the service to the internet. Keep it false unless the user explicitly requests public access.
 
+Reference configurations: https://github.com/Bethel-nz/pier/tree/main/examples/configs
+
 Workflow:
 
 1. Run pier --help and pier service add --help for the installed command reference.

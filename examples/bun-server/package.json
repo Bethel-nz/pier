@@ -1,0 +1,7 @@
+{
+  "name": "pier-bun-server",
+  "private": true,
+  "scripts": {
+    "start": "bun run server.ts"
+  }
+}

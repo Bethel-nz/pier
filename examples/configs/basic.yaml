@@ -1,0 +1,11 @@
+version: 1
+name: simple-web
+
+defaults:
+  public: false
+  protocol: http
+
+services:
+  web:
+    target: localhost:3000
+    path: /
