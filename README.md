@@ -168,4 +168,4 @@ Do not tag `v0.1.0` until that live run and a TUI pass have been done on a real 
 
 ## License
 
-See the repository for license terms.
+Pier is available under the [MIT License](LICENSE).
