@@ -44,7 +44,7 @@ func Validate(project Project) []ValidationError {
 		errors = append(errors, ValidationError{Field: "services", Message: "must contain at least one service"})
 	}
 
-	claimedPaths := make(map[string]string, len(project.Services))
+	claimedRoutes := make(map[string]string, len(project.Services))
 	for _, service := range project.Services {
 		if !serviceNamePattern.MatchString(service.Name) {
 			errors = append(errors, serviceError(service.Name, "name", "must match ^[a-z][a-z0-9-]*$"))
@@ -54,10 +54,10 @@ func Validate(project Project) []ValidationError {
 		}
 		if message := invalidPathMessage(service.Path); message != "" {
 			errors = append(errors, serviceError(service.Name, "path", message))
-		} else if owner, exists := claimedPaths[service.Path]; exists {
-			errors = append(errors, serviceError(service.Name, "path", fmt.Sprintf("duplicates path claimed by service %q", owner)))
+		} else if route := fmt.Sprintf("https:%d:%s", service.HTTPSPort, service.Path); claimedRoutes[route] != "" {
+			errors = append(errors, serviceError(service.Name, "path", fmt.Sprintf("duplicates listener and path claimed by service %q", claimedRoutes[route])))
 		} else {
-			claimedPaths[service.Path] = service.Name
+			claimedRoutes[route] = service.Name
 		}
 		if service.Protocol != ProtocolHTTP && service.Protocol != ProtocolHTTPS {
 			errors = append(errors, serviceError(service.Name, "protocol", "must be http or https"))
