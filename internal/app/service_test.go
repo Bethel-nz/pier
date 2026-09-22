@@ -314,6 +314,23 @@ func TestStatusReturnsHealthAndURLs(t *testing.T) {
 	}
 }
 
+func TestStatusReturnsStateLoadError(t *testing.T) {
+	env := newEnv()
+	env.loadStateErr = errors.New("decode project state")
+	svc := env.service()
+
+	result, err := svc.Status(context.Background(), StatusRequest{Start: env.project.Root})
+	if err == nil || !strings.HasPrefix(err.Error(), "Pier could not load project state:") {
+		t.Fatalf("Status() error = %v, want Pier state explanation", err)
+	}
+	if result.Project.ID != env.project.ID {
+		t.Errorf("Status() project = %#v, want %#v", result.Project, env.project)
+	}
+	if env.mutated {
+		t.Error("Status() invoked a Tailscale mutation")
+	}
+}
+
 func TestDoctorReportsTailscaleDiagnostics(t *testing.T) {
 	env := newEnv()
 	env.checkErr = errors.New("Tailscale is not installed or is not available on PATH")
