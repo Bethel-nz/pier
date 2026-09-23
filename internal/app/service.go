@@ -401,7 +401,10 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 	if err != nil {
 		return StatusResult{Project: loaded.project}, err
 	}
-	st, _ := s.store.Load(loaded.project.ID)
+	st, err := s.store.Load(loaded.project.ID)
+	if err != nil {
+		return StatusResult{Project: loaded.project}, fmt.Errorf("Pier could not load project state: %w", err)
+	}
 	dns := s.lookupDNS(ctx, st.DNSName)
 	services := effectiveServices(loaded.cfg, st.Overrides)
 	results := s.checkTargets(ctx, services)
