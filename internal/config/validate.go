@@ -45,7 +45,6 @@ func Validate(project Project) []ValidationError {
 	}
 
 	claimedRoutes := make(map[string]string, len(project.Services))
-	claimedDomains := make(map[string]string, len(project.Services))
 	for _, service := range project.Services {
 		if !serviceNamePattern.MatchString(service.Name) {
 			errors = append(errors, serviceError(service.Name, "name", "must match ^[a-z][a-z0-9-]*$"))
@@ -62,15 +61,6 @@ func Validate(project Project) []ValidationError {
 		}
 		if service.Protocol != ProtocolHTTP && service.Protocol != ProtocolHTTPS {
 			errors = append(errors, serviceError(service.Name, "protocol", "must be http or https"))
-		}
-		if service.Domain != "" {
-			if message := invalidDomainMessage(service.Domain); message != "" {
-				errors = append(errors, serviceError(service.Name, "domain", message))
-			} else if owner, exists := claimedDomains[service.Domain]; exists {
-				errors = append(errors, serviceError(service.Name, "domain", fmt.Sprintf("duplicates domain claimed by service %q", owner)))
-			} else {
-				claimedDomains[service.Domain] = service.Name
-			}
 		}
 	}
 
@@ -100,27 +90,6 @@ func validTarget(service ResolvedService) bool {
 	ip := net.ParseIP(service.Host)
 	return ip != nil && ip.IsLoopback()
 }
-
-func invalidDomainMessage(domain string) string {
-	if strings.Contains(domain, "://") || net.ParseIP(domain) != nil {
-		return "must be a hostname ending in .local, not an address"
-	}
-	if !strings.HasSuffix(domain, ".local") {
-		return "must end in .local"
-	}
-	labels := strings.Split(strings.TrimSuffix(domain, ".local"), ".")
-	if len(labels) == 0 || labels[0] == "" {
-		return "must have a name before .local"
-	}
-	for _, label := range labels {
-		if !domainLabel.MatchString(label) {
-			return "must use lowercase letters, digits, and hyphens"
-		}
-	}
-	return ""
-}
-
-var domainLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 
 func invalidPathMessage(servicePath string) string {
 	if !strings.HasPrefix(servicePath, "/") {

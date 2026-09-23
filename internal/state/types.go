@@ -20,7 +20,6 @@ type ProjectState struct {
 	DNSName    string          `json:"dnsName,omitempty"`
 	ConfigHash string          `json:"configHash,omitempty"`
 	Routes     []Route         `json:"routes,omitempty"`
-	Domains    []LocalDomain   `json:"domains,omitempty"`
 	Overrides  map[string]bool `json:"overrides,omitempty"`
 	Paused     map[string]bool `json:"paused,omitempty"`
 	UpdatedAt  time.Time       `json:"updatedAt"`
@@ -31,11 +30,4 @@ type Route struct {
 	Service   string `json:"service"`
 	HTTPSPort uint16 `json:"httpsPort"`
 	Path      string `json:"path"`
-}
-
-// LocalDomain is a LAN name Pier publishes for one service.
-type LocalDomain struct {
-	Service string `json:"service"`
-	Name    string `json:"name"`
-	Port    uint16 `json:"port"`
 }

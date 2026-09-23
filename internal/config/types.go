@@ -20,9 +20,6 @@ type Service struct {
 	Path     string `yaml:"path"`
 	Public   *bool  `yaml:"public"`
 	Protocol string `yaml:"protocol"`
-	// Domain is an optional LAN name, such as holo-api.local.
-	// Pier publishes it and moves it when the machine's address changes.
-	Domain string `yaml:"domain"`
 }
 
 // Protocol is the supported local proxy protocol.
@@ -50,5 +47,4 @@ type ResolvedService struct {
 	Path      string
 	Protocol  Protocol
 	Public    bool
-	Domain    string
 }

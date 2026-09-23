@@ -57,7 +57,6 @@ func Normalize(cfg Config) (Project, error) {
 			Path:      servicePath,
 			Protocol:  Protocol(protocol),
 			Public:    public,
-			Domain:    normalizeDomain(service.Domain),
 		})
 	}
 
@@ -78,9 +77,4 @@ func resolveTarget(target string, protocol Protocol) (string, string, uint16) {
 	}
 
 	return string(protocol) + "://" + net.JoinHostPort(host, portText), host, uint16(port)
-}
-
-func normalizeDomain(domain string) string {
-	domain = strings.TrimSpace(strings.ToLower(domain))
-	return strings.TrimSuffix(domain, ".")
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"pier/internal/app"
-	"pier/internal/localname"
 	"pier/internal/state"
 	"pier/internal/tailscale"
 	"pier/internal/tui"
@@ -59,9 +58,7 @@ func ExecuteWith(ctx context.Context, args []string, stdout, stderr io.Writer, a
 		if err != nil {
 			return err
 		}
-		service := app.New(store, tailscale.ExecRunner{})
-		service.EnableLocalNames(localname.NewDirectory(store))
-		application = service
+		application = app.New(store, tailscale.ExecRunner{})
 	}
 	cmd := newRootCommand(stdout, stderr, application)
 	cmd.SetArgs(args)
@@ -110,7 +107,6 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 		newOpenCommand(rt),
 		newCopyCommand(rt),
 		newTUICommand(rt),
-		newLocaldCommand(),
 	)
 	return cmd
 }
