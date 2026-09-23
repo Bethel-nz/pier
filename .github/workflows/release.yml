@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,7 +18,28 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          case "$tag" in
+            v*) ;;
+            *)
+              echo "Refusing to publish '$tag'. The tag must start with v." >&2
+              exit 1
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -53,11 +80,22 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/pier_*.tar.gz \
-            dist/pier_*.zip \
-            dist/checksums.txt \
-            --verify-tag \
-            --generate-notes \
-            --title "Pier ${GITHUB_REF_NAME}"
+          set -euo pipefail
+          git rev-parse "refs/tags/${RELEASE_TAG}" >/dev/null
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" \
+              dist/pier_*.tar.gz \
+              dist/pier_*.zip \
+              dist/checksums.txt \
+              --clobber
+          else
+            gh release create "${RELEASE_TAG}" \
+              dist/pier_*.tar.gz \
+              dist/pier_*.zip \
+              dist/checksums.txt \
+              --verify-tag \
+              --generate-notes \
+              --title "Pier ${RELEASE_TAG}"
+          fi
