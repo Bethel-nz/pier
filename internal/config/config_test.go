@@ -207,6 +207,13 @@ func TestValidateReturnsAllErrorsInStableOrder(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsSamePathOnDifferentListeners(t *testing.T) {
+	project := loadAndNormalize(t, "version: 1\nname: demo\nservices:\n  private:\n    target: localhost:3000\n    path: /\n  exposed:\n    target: localhost:4000\n    path: /\n    public: true\n")
+	if errors := Validate(project); len(errors) != 0 {
+		t.Fatalf("Validate() errors = %v, want none", errors)
+	}
+}
+
 func loadAndNormalize(t *testing.T, input string) Project {
 	t.Helper()
 	configPath := filepath.Join(t.TempDir(), "pier.yaml")
