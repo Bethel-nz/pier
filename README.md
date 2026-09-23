@@ -86,6 +86,8 @@ services:
 
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
+A service can also set `domain` to a name ending in `.local`, such as `my-app.local`. `pier up` publishes that name on the local network at the service's own port. Pier watches this machine's address and replaces the advertisement when Wi-Fi renumbers, and `pier down` withdraws it. The name is not a stored IP. macOS publishes through Bonjour (`dns-sd`). Linux publishes through Avahi. Windows publishes through the system DNS-SD API. The Tailscale URL is unchanged.
+
 A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration details are in [`docs/configuration.md`](docs/configuration.md).
 
 ## Configuration examples
