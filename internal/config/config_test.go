@@ -30,6 +30,18 @@ func TestNormalizeDomain(t *testing.T) {
 	}
 }
 
+func TestValidateDomainLength(t *testing.T) {
+	long := strings.Repeat("a", 64)
+	project := Project{Version: 1, Name: "demo", Services: []ResolvedService{{
+		Name: "api", Target: "http://127.0.0.1:4000", Host: "127.0.0.1", Port: 4000,
+		Path: "/", Protocol: ProtocolHTTP, Domain: long + ".local",
+	}}}
+	errors := Validate(project)
+	if len(errors) != 1 || errors[0].Field != "domain" {
+		t.Fatalf("Validate() = %#v, want one domain error", errors)
+	}
+}
+
 func TestValidateDomain(t *testing.T) {
 	project := Project{Version: 1, Name: "demo", Services: []ResolvedService{{
 		Name: "api", Target: "http://127.0.0.1:4000", Host: "127.0.0.1", Port: 4000,

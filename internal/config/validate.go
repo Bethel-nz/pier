@@ -112,7 +112,13 @@ func invalidDomainMessage(domain string) string {
 	if len(labels) == 0 || labels[0] == "" {
 		return "must have a name before .local"
 	}
+	if len(domain) > 253 {
+		return "must be 253 characters or fewer"
+	}
 	for _, label := range labels {
+		if len(label) > 63 {
+			return "each label must be 63 characters or fewer"
+		}
 		if !domainLabel.MatchString(label) {
 			return "must use lowercase letters, digits, and hyphens"
 		}

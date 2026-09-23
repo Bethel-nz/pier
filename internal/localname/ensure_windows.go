@@ -32,7 +32,10 @@ func ensureDaemon() error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("Pier could not start local name publishing: %w", err)
 	}
-	return writePID(command.Process.Pid)
+	if err := writePID(command.Process.Pid); err != nil {
+		return err
+	}
+	return WaitReady()
 }
 
 func stopDaemon() error {
@@ -40,8 +43,10 @@ func stopDaemon() error {
 	if !ok {
 		return nil
 	}
-	if process, err := os.FindProcess(pid); err == nil {
-		_ = process.Kill()
+	if isLocald(pid) {
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
 	}
 	path, err := pidPath()
 	if err != nil {
@@ -65,15 +70,7 @@ func daemonAlive() bool {
 		return false
 	}
 	_, _, _ = closeHandle.Call(handle)
-	return true
-}
-
-func pidPath() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "pier", "locald.pid"), nil
+	return isLocald(pid)
 }
 
 func writePID(pid int) error {

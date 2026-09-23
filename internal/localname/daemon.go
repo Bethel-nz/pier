@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/state"
@@ -17,40 +18,43 @@ import (
 // advertisement before the new one starts, so a previous Wi-Fi address
 // is not left published.
 func Run(ctx context.Context, projects *state.Store, announce Announcer) error {
+	lock, owned, err := lockDaemon()
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return nil
+	}
+	defer lock.Close()
+	if path, pathErr := statusPath(); pathErr == nil {
+		_ = os.Remove(path)
+	}
+
 	publisher := NewPublisher(announce)
-	defer func() { _ = publisher.StopAll() }()
+	defer func() {
+		_ = publisher.StopAll()
+		if path, pathErr := pidPath(); pathErr == nil {
+			_ = os.Remove(path)
+		}
+		if path, pathErr := statusPath(); pathErr == nil {
+			_ = os.Remove(path)
+		}
+	}()
 
 	var address string
 	var signature string
+	started := false
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
-		projectsNow, err := projects.List()
-		if err != nil {
-			return err
-		}
-		records, err := Records(projectsNow)
-		if err != nil {
-			return err
-		}
-		ip, err := CurrentIPv4()
-		if err != nil {
-			return err
-		}
-		nextAddress := ""
-		if ip != nil {
-			nextAddress = ip.String()
-		}
-		nextSignature := signatureOf(records)
-		if nextAddress != address || nextSignature != signature {
-			if err := publisher.Reconcile(ctx, records, ip); err != nil {
+		if err := publishOnce(ctx, projects, publisher, &address, &signature); err != nil {
+			_ = writeStatus("error: " + err.Error())
+			if !started {
 				return err
 			}
-			if err := writeLease(publisher.PIDs()); err != nil {
-				return err
-			}
-			address = nextAddress
-			signature = nextSignature
+		} else {
+			started = true
+			_ = writeStatus("ok")
 		}
 		select {
 		case <-ctx.Done():
@@ -58,6 +62,38 @@ func Run(ctx context.Context, projects *state.Store, announce Announcer) error {
 		case <-tick.C:
 		}
 	}
+}
+
+func publishOnce(ctx context.Context, projects *state.Store, publisher *Publisher, address, signature *string) error {
+	projectsNow, err := projects.List()
+	if err != nil {
+		return err
+	}
+	records, err := Records(projectsNow)
+	if err != nil {
+		return err
+	}
+	ip, err := CurrentIPv4()
+	if err != nil {
+		return err
+	}
+	nextAddress := ""
+	if ip != nil {
+		nextAddress = ip.String()
+	}
+	nextSignature := signatureOf(records)
+	if nextAddress == *address && nextSignature == *signature {
+		return nil
+	}
+	if err := publisher.Reconcile(ctx, records, ip); err != nil {
+		return err
+	}
+	if err := writeLease(publisher.PIDs()); err != nil {
+		return err
+	}
+	*address = nextAddress
+	*signature = nextSignature
+	return nil
 }
 
 func signatureOf(records []Record) string {
@@ -83,12 +119,52 @@ type leaseFile struct {
 	PIDs []int `json:"pids"`
 }
 
-func leasePath() (string, error) {
+func runtimePath(name string) (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "pier", "locald.json"), nil
+	return filepath.Join(base, "pier", name), nil
+}
+
+func leasePath() (string, error)  { return runtimePath("locald.json") }
+func statusPath() (string, error) { return runtimePath("locald.status") }
+func pidPath() (string, error)    { return runtimePath("locald.pid") }
+func lockPath() (string, error)   { return runtimePath("locald.lock") }
+
+func writeStatus(message string) error {
+	path, err := statusPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(message+"\n"), 0o600)
+}
+
+// WaitReady blocks until the publisher reports its first result.
+func WaitReady() error {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if path, err := statusPath(); err == nil {
+			contents, readErr := os.ReadFile(path)
+			if readErr == nil {
+				text := strings.TrimSpace(string(contents))
+				switch {
+				case text == "ok":
+					return nil
+				case strings.HasPrefix(text, "error:"):
+					_ = stopDaemon()
+					return fmt.Errorf("Pier could not publish local names: %s", strings.TrimPrefix(text, "error:"))
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Pier could not confirm local name publishing")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func writeLease(pids []int) error {
@@ -124,6 +200,9 @@ func Release() error {
 		return err
 	}
 	for _, pid := range lease.PIDs {
+		if !isAdvertiser(pid) {
+			continue
+		}
 		_ = stopPID(pid)
 	}
 	return os.Remove(path)

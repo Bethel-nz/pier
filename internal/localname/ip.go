@@ -25,6 +25,33 @@ func SelectIPv4(ips []net.IP) net.IP {
 	return fallback
 }
 
+// ParseLinuxDefaultInterface reads the interface for destination 00000000 in /proc/net/route.
+func ParseLinuxDefaultInterface(routeTable string) string {
+	lines := strings.Split(routeTable, "\n")
+	for i, line := range lines {
+		if i == 0 || strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == "00000000" {
+			return fields[0]
+		}
+	}
+	return ""
+}
+
+// ParseWindowsDefaultIPv4 reads the interface address of the 0.0.0.0 route.
+func ParseWindowsDefaultIPv4(routePrint string) net.IP {
+	for _, line := range strings.Split(routePrint, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[0] != "0.0.0.0" || fields[1] != "0.0.0.0" {
+			continue
+		}
+		return net.ParseIP(fields[3]).To4()
+	}
+	return nil
+}
+
 // ParseDefaultInterface reads the interface name from `route -n get default` output.
 func ParseDefaultInterface(output string) string {
 	scanner := bufio.NewScanner(strings.NewReader(output))

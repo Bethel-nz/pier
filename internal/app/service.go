@@ -783,6 +783,9 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		st.Overrides = overrides
 	}
 	st.Paused = compactBoolMap(paused)
+	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
+		return err
+	}
 	st.Domains = domains
 	if s.now != nil {
 		st.UpdatedAt = s.now()
@@ -931,7 +934,7 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Public:    service.Public,
 			Paused:    paused[service.Name],
 			URL:       serviceURL(dns, service.HTTPSPort, service.Path),
-			LocalURL:  localServiceURL(service),
+			LocalURL:  localServiceURL(service, paused[service.Name]),
 			Health:    healthByName[service.Name],
 		}
 		if info.Health.Service == "" {
@@ -993,8 +996,36 @@ func sameDomains(left, right []state.LocalDomain) bool {
 	return true
 }
 
-func localServiceURL(service config.ResolvedService) string {
-	if service.Domain == "" {
+func (s *Service) rejectDomainConflicts(projectID string, domains []state.LocalDomain) error {
+	lister, ok := s.store.(interface {
+		List() ([]state.ProjectState, error)
+	})
+	if !ok || len(domains) == 0 {
+		return nil
+	}
+	projects, err := lister.List()
+	if err != nil {
+		return fmt.Errorf("Pier could not check local domain names: %w", err)
+	}
+	claimed := map[string]string{}
+	for _, project := range projects {
+		if project.ProjectID == projectID {
+			continue
+		}
+		for _, domain := range project.Domains {
+			claimed[domain.Name] = project.ProjectID
+		}
+	}
+	for _, domain := range domains {
+		if claimed[domain.Name] != "" {
+			return fmt.Errorf("Pier could not publish %s because another project already uses that name", domain.Name)
+		}
+	}
+	return nil
+}
+
+func localServiceURL(service config.ResolvedService, paused bool) string {
+	if service.Domain == "" || paused {
 		return ""
 	}
 	scheme := "http"

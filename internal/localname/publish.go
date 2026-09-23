@@ -2,6 +2,7 @@ package localname
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"sort"
 	"strconv"
@@ -131,4 +132,11 @@ func AvahiArgs(name string, ip net.IP) []string {
 func InstanceName(host string) string {
 	label := strings.TrimSuffix(host, ".local")
 	return label + "._http._tcp.local"
+}
+
+// ipv4Dword stores an IPv4 address so its in-memory bytes stay in octet order.
+// Windows reads those bytes directly. A numeric big-endian value would reverse them.
+func ipv4Dword(ip net.IP) uint32 {
+	octets := ip.To4()
+	return binary.LittleEndian.Uint32(octets)
 }

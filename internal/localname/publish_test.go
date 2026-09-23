@@ -2,6 +2,7 @@ package localname
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"reflect"
 	"testing"
@@ -15,6 +16,16 @@ func TestAvahiArgsAndInstanceName(t *testing.T) {
 	}
 	if got := InstanceName("my-app.local"); got != "my-app._http._tcp.local" {
 		t.Fatalf("InstanceName() = %q", got)
+	}
+}
+
+func TestIPv4DwordKeepsOctetOrder(t *testing.T) {
+	value := ipv4Dword(net.ParseIP("192.168.1.182"))
+	var raw [4]byte
+	binary.LittleEndian.PutUint32(raw[:], value)
+	want := []byte{192, 168, 1, 182}
+	if !reflect.DeepEqual(raw[:], want) {
+		t.Fatalf("address bytes = %v, want %v", raw, want)
 	}
 }
 
