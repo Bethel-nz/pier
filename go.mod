@@ -1,4 +1,4 @@
-module pier
+module github.com/Bethel-nz/pier
 
 go 1.25.0
 

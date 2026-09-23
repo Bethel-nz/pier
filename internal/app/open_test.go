@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/reconcile"
 )
 
 func TestCopyReturnsURLWhenConfigured(t *testing.T) {

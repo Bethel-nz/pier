@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
-	"pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/config"
 )
 
 // ErrFormAborted is returned when the user cancels a Huh form.

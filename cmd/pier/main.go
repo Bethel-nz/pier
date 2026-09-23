@@ -5,8 +5,8 @@ import (
 	"errors"
 	"os"
 
-	"pier/internal/app"
-	"pier/internal/cli"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/cli"
 )
 
 func main() {

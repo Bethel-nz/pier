@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"pier/internal/app"
-	"pier/internal/health"
-	"pier/internal/project"
-	"pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/health"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/reconcile"
 )
 
 func TestStatusTableColumns(t *testing.T) {

@@ -16,11 +16,11 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/charmbracelet/x/ansi"
 
-	"pier/internal/app"
-	"pier/internal/config"
-	"pier/internal/project"
-	"pier/internal/reconcile"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 // Options configure the TUI session.

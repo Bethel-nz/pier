@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"pier/internal/app"
-	"pier/internal/state"
-	"pier/internal/tailscale"
-	"pier/internal/tui"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/tailscale"
+	"github.com/Bethel-nz/pier/internal/tui"
 )
 
 // App is the CLI's view of the shared application service.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/config"
 )
 
 func TestCheckReportsHealthyForOpenPort(t *testing.T) {

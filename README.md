@@ -31,13 +31,19 @@ irm https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.ps1 | 
 
 The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory. Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
 
+From anywhere, with Go:
+
+```bash
+go install github.com/Bethel-nz/pier/cmd/pier@latest
+```
+
 From a source checkout:
 
 ```bash
 go install ./cmd/pier
 ```
 
-That puts `pier` in `$(go env GOPATH)/bin` (or `GOBIN` if set). Add that directory to your `PATH`.
+Either command puts `pier` in `$(go env GOPATH)/bin` (or `GOBIN` if set). Add that directory to your `PATH`.
 
 ## Quick start
 
