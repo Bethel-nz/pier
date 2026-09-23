@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"testing"
 
-	"pier/internal/config"
-	"pier/internal/reconcile"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 func TestPauseRemovesRouteWithoutChangingConfigOrProcess(t *testing.T) {

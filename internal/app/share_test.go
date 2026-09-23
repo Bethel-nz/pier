@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"pier/internal/reconcile"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 func TestShareStoresOverrideWithoutChangingConfig(t *testing.T) {

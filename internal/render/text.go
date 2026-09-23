@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"pier/internal/app"
-	"pier/internal/health"
-	"pier/internal/project"
-	"pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/health"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/reconcile"
 )
 
 // Options control how command results are printed.

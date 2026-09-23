@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"pier/internal/app"
-	"pier/internal/project"
-	"pier/internal/render"
-	"pier/internal/state"
-	"pier/internal/tui"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/render"
+	"github.com/Bethel-nz/pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/tui"
 )
 
 func (rt *runtime) renderer(command string) render.Options {

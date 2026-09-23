@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/config"
 )
 
 func TestFindReturnsNearestAncestorConfig(t *testing.T) {

@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"pier/internal/config"
-	"pier/internal/health"
-	"pier/internal/platform"
-	"pier/internal/project"
-	"pier/internal/reconcile"
-	"pier/internal/state"
-	"pier/internal/tailscale"
+	"github.com/Bethel-nz/pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/health"
+	"github.com/Bethel-nz/pier/internal/platform"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/tailscale"
 )
 
 // ValidateRequest locates and validates a project configuration.

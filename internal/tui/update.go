@@ -8,9 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"pier/internal/app"
-	"pier/internal/project"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

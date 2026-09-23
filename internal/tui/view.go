@@ -9,9 +9,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"pier/internal/app"
-	"pier/internal/health"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/health"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 var (

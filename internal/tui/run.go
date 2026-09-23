@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"pier/internal/app"
-	"pier/internal/project"
-	"pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 // Run starts the interactive management interface.

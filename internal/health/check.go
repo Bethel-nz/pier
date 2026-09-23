@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/config"
 )
 
 // DefaultTimeout is the per-service dial deadline.
