@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"pier/internal/app"
+	"pier/internal/localname"
 	"pier/internal/project"
 	"pier/internal/render"
 	"pier/internal/state"
@@ -27,6 +30,23 @@ func (rt *runtime) renderer(command string) render.Options {
 		Command: command,
 		Out:     out,
 		Err:     err,
+	}
+}
+
+func newLocaldCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    "locald",
+		Short:  "Publish local domains and move them when this machine's address changes",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			store, err := state.Open()
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			return localname.Run(ctx, store, &localname.DNSAnnouncer{})
+		},
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"pier/internal/config"
 	"pier/internal/health"
+	"pier/internal/localname"
 	"pier/internal/platform"
 	"pier/internal/project"
 	"pier/internal/reconcile"
@@ -147,6 +148,7 @@ type ServiceInfo struct {
 	Public    bool
 	Paused    bool
 	URL       string
+	LocalURL  string
 	Health    health.Result
 }
 
@@ -325,6 +327,14 @@ type Service struct {
 	openURL    func(context.Context, string) error
 	copyURL    func(context.Context, string) error
 	addService func(path, name string, service config.Service) error
+	locals     interface {
+		Sync(context.Context) error
+	}
+}
+
+// EnableLocalNames publishes optional service domains on the local network.
+func (s *Service) EnableLocalNames(directory *localname.Directory) {
+	s.locals = directory
 }
 
 // New constructs the production application service.
@@ -389,7 +399,7 @@ func (s *Service) Down(ctx context.Context, req DownRequest) (DownResult, error)
 	if err := s.reviewPlan(sess.plan, false); err != nil {
 		return result, err
 	}
-	if err := s.applyAndPersist(ctx, &sess, sess.state.Overrides, sess.state.Paused); err != nil {
+	if err := s.applyAndPersist(ctx, &sess, sess.state.Overrides, sess.state.Paused, false); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -617,7 +627,7 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 			return result, err
 		}
 	}
-	if err := s.applyAndPersist(ctx, &sess, overrides, paused); err != nil {
+	if err := s.applyAndPersist(ctx, &sess, overrides, paused, true); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -742,13 +752,21 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 	return results
 }
 
-func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool) error {
+func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool, keepDomains bool) error {
 	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
 	if err != nil {
 		return &ApplyError{Err: err, Result: result}
 	}
+	domains := []state.LocalDomain(nil)
+	if keepDomains {
+		domains = localDomains(sess.cfg, paused)
+	}
 	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
-	if result.Verified == nil && !pausedChanged {
+	domainsChanged := !sameDomains(sess.state.Domains, domains)
+	if result.Verified == nil && !pausedChanged && !domainsChanged {
+		if s.locals != nil && len(domains) > 0 {
+			return s.locals.Sync(ctx)
+		}
 		return nil
 	}
 	st := sess.state
@@ -765,6 +783,7 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		st.Overrides = overrides
 	}
 	st.Paused = compactBoolMap(paused)
+	st.Domains = domains
 	if s.now != nil {
 		st.UpdatedAt = s.now()
 	} else {
@@ -774,6 +793,11 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		return fmt.Errorf("Pier could not save project state: %w", err)
 	}
 	sess.state = st
+	if s.locals != nil {
+		if err := s.locals.Sync(ctx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -907,6 +931,7 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Public:    service.Public,
 			Paused:    paused[service.Name],
 			URL:       serviceURL(dns, service.HTTPSPort, service.Path),
+			LocalURL:  localServiceURL(service),
 			Health:    healthByName[service.Name],
 		}
 		if info.Health.Service == "" {
@@ -939,6 +964,48 @@ func indexHealth(results []health.Result) map[string]health.Result {
 		indexed[result.Service] = result
 	}
 	return indexed
+}
+
+func localDomains(cfg config.Project, paused map[string]bool) []state.LocalDomain {
+	domains := make([]state.LocalDomain, 0)
+	for _, service := range cfg.Services {
+		if service.Domain == "" || paused[service.Name] {
+			continue
+		}
+		domains = append(domains, state.LocalDomain{
+			Service: service.Name,
+			Name:    service.Domain,
+			Port:    service.Port,
+		})
+	}
+	return domains
+}
+
+func sameDomains(left, right []state.LocalDomain) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func localServiceURL(service config.ResolvedService) string {
+	if service.Domain == "" {
+		return ""
+	}
+	scheme := "http"
+	if service.Protocol == config.ProtocolHTTPS {
+		scheme = "https"
+	}
+	path := service.Path
+	if path == "" {
+		path = "/"
+	}
+	return scheme + "://" + net.JoinHostPort(service.Domain, strconv.Itoa(int(service.Port))) + path
 }
 
 func serviceURL(dnsName string, httpsPort uint16, path string) string {

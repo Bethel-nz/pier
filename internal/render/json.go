@@ -93,6 +93,7 @@ type JSONService struct {
 	Paused    bool   `json:"paused"`
 	Health    string `json:"health"`
 	URL       string `json:"url"`
+	LocalURL  string `json:"localUrl,omitempty"`
 	HTTPSPort uint16 `json:"httpsPort"`
 }
 
@@ -176,6 +177,7 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			Paused:    service.Paused,
 			Health:    string(service.Health.Status),
 			URL:       service.URL,
+			LocalURL:  service.LocalURL,
 			HTTPSPort: service.HTTPSPort,
 		})
 	}

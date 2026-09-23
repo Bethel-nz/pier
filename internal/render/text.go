@@ -268,6 +268,12 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 		)
 	}
 	_ = tab.Flush()
+	for _, service := range services {
+		if service.LocalURL == "" {
+			continue
+		}
+		fmt.Fprintf(w, "local  %s  %s\n", service.Name, service.LocalURL)
+	}
 }
 
 func writeOperations(w io.Writer, ops []reconcile.Operation) {
