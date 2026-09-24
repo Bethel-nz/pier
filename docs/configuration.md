@@ -16,6 +16,7 @@ services:
   web:
     target: localhost:3000
     path: /
+    domain: greppa.local
 
   api:
     target: localhost:4000
@@ -38,6 +39,7 @@ services:
 | `services.<name>.path` | URL path on the Tailscale listener |
 | `services.<name>.public` | Optional per-service override of `defaults.public` |
 | `services.<name>.protocol` | Optional per-service `http` or `https` |
+| `services.<name>.domain` | Optional `.local` name served over HTTPS on the local network |
 
 v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 
@@ -46,6 +48,7 @@ v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 - [`basic.yaml`](../examples/configs/basic.yaml) shows the smallest private service configuration.
 - [`multiple-services.yaml`](../examples/configs/multiple-services.yaml) shows path routing for multiple services and a per-service HTTPS upstream.
 - [`public-webhook.yaml`](../examples/configs/public-webhook.yaml) keeps the main app private while exposing only a webhook through Funnel.
+- [`local-domains.yaml`](../examples/configs/local-domains.yaml) serves `.local` HTTPS names on the LAN alongside private Tailscale URLs.
 - [`bun-server`](../examples/bun-server/) is a runnable local demo and remains private by default.
 
 ## Listeners
@@ -54,6 +57,16 @@ v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 - `public: true` → Tailscale Funnel on HTTPS port `443`
 
 Serve and Funnel never share a listener. Changing `public` (or using `pier share` / `pier unshare`) plans a delete on the old listener and a create on the new one.
+
+## Local domains
+
+`domain` must be a lowercase hostname ending in `.local`, such as `greppa.local` or `api.greppa.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to the Tailscale URL.
+
+`pier up` issues `.pier/certs/cert.pem` and `key.pem` for the project's domains, signed by a per-user CA in the user config directory (`pier/ca/`). The CA is name-constrained to `.local`. Apps may reuse the project certificate directly, for example as Vite's `server.https`.
+
+A background daemon (`pier locald`, started by `pier up`) answers multicast DNS for the names, listens on port 443 (8443 when 443 is unavailable) and port 80 (redirects, and the CA at `/.pier/ca.pem`), and proxies to the loopback target. The upstream sees `Host` set to its target and `X-Forwarded-Host` set to the `.local` name. Dev servers that proxy to another Pier name must rewrite `Host` (`changeOrigin: true`); Pier stops forwarding loops with `508`.
+
+`pier status` shows a local URL only while the daemon serves the name. Otherwise it shows the state: `probing`, `conflict` (another device or project answers for the name), `paused`, or `down`.
 
 ## Discovery
 

@@ -86,7 +86,34 @@ services:
 
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
-A service can also set `domain` to a name ending in `.local`, such as `my-app.local`. `pier up` publishes that name on the local network at the service's own port. Pier watches this machine's address and replaces the advertisement when Wi-Fi renumbers, and `pier down` withdraws it. The name is not a stored IP. macOS publishes through Bonjour (`dns-sd`). Linux publishes through Avahi. Windows publishes through the system DNS-SD API. The Tailscale URL is unchanged.
+## Local domains
+
+Give a service a `domain` ending in `.local`, and `pier up` serves it over HTTPS to this machine and every phone, tablet, and laptop on the same network:
+
+```yaml
+services:
+  web:
+    target: localhost:3000
+    domain: greppa.local
+```
+
+```
+local  web  https://greppa.local/
+```
+
+Nothing else to install. On `pier up`, Pier:
+
+- issues a certificate into `.pier/certs/` from a local CA that can only sign `.local` names (and adds `.pier/` to `.gitignore`),
+- asks the OS once to trust that CA (the macOS password dialog, a Windows confirmation, or `sudo` on Linux),
+- starts a small background daemon that answers mDNS for the names and proxies HTTPS on port 443 to your service, which stays bound to loopback.
+
+The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a domain. The Tailscale URL is unchanged.
+
+To trust HTTPS on a phone, open `http://<your-domain>/.pier/ca.pem` on it once and install the profile. On iOS, also enable it under Settings → General → About → Certificate Trust Settings.
+
+On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(command -v pier)"`. Without it, Pier uses port 8443 and says so. Chrome and Firefox on Linux read their own certificate stores; Pier adds its CA there when NSS's `certutil` is installed.
+
+A `.local` domain makes that service reachable by anyone on the same network. Use it on networks you trust.
 
 A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration details are in [`docs/configuration.md`](docs/configuration.md).
 
@@ -95,6 +122,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 - [`examples/configs/basic.yaml`](examples/configs/basic.yaml) — one private HTTP service.
 - [`examples/configs/multiple-services.yaml`](examples/configs/multiple-services.yaml) — several private services on separate paths, including an HTTPS upstream.
 - [`examples/configs/public-webhook.yaml`](examples/configs/public-webhook.yaml) — a private app with one public Funnel webhook.
+- [`examples/configs/local-domains.yaml`](examples/configs/local-domains.yaml) — `.local` HTTPS names for devices on the same network.
 - [`examples/bun-server/`](examples/bun-server/) — a runnable Bun server demo with its own `pier.yaml`.
 
 ## CLI
@@ -114,8 +142,9 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 | `pier pause <service>` | Remove that service's Tailscale route; the local process stays running |
 | `pier resume <service>` | Restore a paused service route |
 | `pier service add [name]` | Add a service to `pier.yaml` (Huh form in a TTY, or `--target`) |
-| `pier open <service>` | Open the current Tailscale URL |
-| `pier copy <service>` | Copy the current Tailscale URL |
+| `pier open <service> [--local]` | Open the current Tailscale URL, or the `.local` URL |
+| `pier copy <service> [--local]` | Copy the current Tailscale URL, or the `.local` URL |
+| `pier trust [--remove]` | Trust Pier's local CA again, or remove it (`pier up` trusts it for you) |
 | `pier` / `pier tui` | Interactive management interface |
 
 Global flags: `--config`, `--json`, `--verbose`, `--no-color`.

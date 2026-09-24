@@ -1,9 +1,6 @@
+# Private Tailscale URLs plus HTTPS .local names for phones and laptops on the same Wi-Fi.
 version: 1
 name: greppa
-
-defaults:
-  public: false
-  protocol: http
 
 services:
   web:
@@ -14,8 +11,4 @@ services:
   api:
     target: localhost:4000
     path: /api
-
-  webhook:
-    target: localhost:8787
-    path: /hooks
-    public: true
+    domain: api.greppa.local
