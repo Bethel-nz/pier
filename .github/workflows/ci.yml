@@ -28,6 +28,10 @@ jobs:
           gofmt -w .
           test -z "$(git diff --name-only)"
       - name: vet
-        run: go vet ./...
+        run: go vet ./... && go vet -tags e2e ./e2e/
       - name: test
         run: go test ./...
+      - name: end to end
+        # The real binary: pier up runs an app and serves it, then Ctrl-C,
+        # pier down, and pier clean must leave nothing running.
+        run: go test -tags e2e -v -count=1 -timeout 5m ./e2e/
