@@ -57,6 +57,9 @@ type Service struct {
 	// Listen is the port a TCP service is reached on, over Tailscale and on
 	// the LAN. It defaults to the target's port.
 	Listen uint16 `yaml:"listen"`
+	// Cloudflare is a hostname on a Cloudflare zone you own, such as
+	// app.example.com, served to the internet through a Cloudflare Tunnel.
+	Cloudflare string `yaml:"cloudflare"`
 }
 
 // Protocol is how Pier reaches a service: HTTP or HTTPS proxied by path, or
@@ -107,6 +110,9 @@ type ResolvedService struct {
 	Throttle Shaping
 	// Capture is how long requests are kept for replay; 0 captures nothing.
 	Capture time.Duration
+	// Cloudflare is the public hostname served through the project's
+	// Cloudflare Tunnel; empty when the service has none.
+	Cloudflare string
 
 	// As written, for Validate to explain.
 	throttle      *Throttle

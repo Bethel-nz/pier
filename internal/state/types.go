@@ -28,7 +28,49 @@ type ProjectState struct {
 	Taps       []Tap           `json:"taps,omitempty"`
 	// PublicUntil is when each timed `public:` window closes.
 	PublicUntil map[string]time.Time `json:"publicUntil,omitempty"`
-	UpdatedAt   time.Time            `json:"updatedAt"`
+	// Tunnel is the project's Cloudflare Tunnel, while it serves any hostname.
+	Tunnel    *Tunnel   `json:"tunnel,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// Tunnel is a Cloudflare Tunnel the daemon runs cloudflared for.
+type Tunnel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Credentials is the tunnel's secret, an absolute path to its JSON file.
+	Credentials string `json:"credentials"`
+	// Binary is the absolute path of cloudflared, found by pier up; the
+	// daemon may start with a shorter PATH.
+	Binary string       `json:"binary"`
+	Hosts  []TunnelHost `json:"hosts"`
+}
+
+// TunnelHost routes one public hostname to a service.
+type TunnelHost struct {
+	Service  string `json:"service"`
+	Hostname string `json:"hostname"`
+	// Target is the loopback URL cloudflared forwards to: the service, or
+	// its tap when Pier throttles or captures it.
+	Target string `json:"target"`
+}
+
+// Serving reports whether the tunnel has any hostname to serve.
+func (t *Tunnel) Serving() bool { return t != nil && len(t.Hosts) > 0 }
+
+// Equal reports whether two tunnels would run cloudflared the same way.
+func (t *Tunnel) Equal(other *Tunnel) bool {
+	if t == nil || other == nil {
+		return t == other
+	}
+	if t.ID != other.ID || t.Name != other.Name || t.Credentials != other.Credentials || t.Binary != other.Binary || len(t.Hosts) != len(other.Hosts) {
+		return false
+	}
+	for i := range t.Hosts {
+		if t.Hosts[i] != other.Hosts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ExpiryDue reports whether a public window has closed while this project

@@ -47,6 +47,7 @@ func Validate(project Project) []ValidationError {
 
 	claimedRoutes := make(map[string]string, len(project.Services))
 	claimedDomains := make(map[string]string, len(project.Services))
+	claimedHosts := make(map[string]string, len(project.Services))
 	for _, service := range project.Services {
 		if !serviceNamePattern.MatchString(service.Name) {
 			errors = append(errors, serviceError(service.Name, "name", "must match ^[a-z][a-z0-9-]*$"))
@@ -78,6 +79,7 @@ func Validate(project Project) []ValidationError {
 				claimedDomains[service.Domain] = service.Name
 			}
 		}
+		errors = append(errors, cloudflareErrors(service, claimedHosts)...)
 		errors = append(errors, runErrors(service)...)
 		if _, err := resolveThrottle(service.throttle); err != nil {
 			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))

@@ -69,15 +69,16 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		project.Services = append(project.Services, ResolvedService{
-			Name:      name,
-			Target:    target,
-			Host:      host,
-			Port:      port,
-			HTTPSPort: httpsPort,
-			Path:      servicePath,
-			Protocol:  Protocol(protocol),
-			Public:    public,
-			Domain:    normalizeDomain(service.Domain),
+			Name:       name,
+			Target:     target,
+			Host:       host,
+			Port:       port,
+			HTTPSPort:  httpsPort,
+			Path:       servicePath,
+			Protocol:   Protocol(protocol),
+			Public:     public,
+			Domain:     normalizeDomain(service.Domain),
+			Cloudflare: normalizeDomain(service.Cloudflare),
 			Run: Run{
 				Command: strings.TrimSpace(service.Run),
 				Dir:     strings.TrimSpace(service.Dir),
