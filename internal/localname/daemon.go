@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -111,6 +112,24 @@ type daemon struct {
 	caPEM     []byte
 	startup   []string // warnings found once at startup, such as a port fallback
 	beat      Heartbeat
+
+	// published is the last written heartbeat, read by the API goroutines.
+	mu        sync.RWMutex
+	published Heartbeat
+}
+
+// publish writes the heartbeat file and shares a copy with the API.
+func (d *daemon) publish() {
+	_ = writeHeartbeat(d.beat)
+	d.mu.Lock()
+	d.published = d.beat
+	d.mu.Unlock()
+}
+
+func (d *daemon) heartbeat() Heartbeat {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.published
 }
 
 // listen binds HTTPS (443, else 8443, else 10443) and HTTP (80, else 8080)
@@ -146,6 +165,11 @@ func (d *daemon) listen() error {
 		d.beat.HTTPPort = httpListeners.Port
 		d.servers = append(d.servers, plain)
 	}
+	if port, err := d.serveAPI(); err == nil {
+		d.beat.APIPort = port
+	} else {
+		d.startup = append(d.startup, "Pier could not start its dashboard API: "+err.Error())
+	}
 	return nil
 }
 
@@ -168,7 +192,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	if err != nil {
 		d.beat.Error = "Pier could not read project state: " + err.Error()
 		d.beat.UpdatedAt = now
-		_ = writeHeartbeat(d.beat)
+		d.publish()
 		return true
 	}
 	d.beat.Error = ""
@@ -237,7 +261,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Names = statuses
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
-	_ = writeHeartbeat(d.beat)
+	d.publish()
 	return len(routes) > 0
 }
 

@@ -34,12 +34,14 @@ type NameStatus struct {
 
 // Heartbeat is the daemon's view of itself, rewritten every second.
 type Heartbeat struct {
-	PID       int          `json:"pid"`
-	Build     string       `json:"build"`
-	StartedAt time.Time    `json:"startedAt"`
-	UpdatedAt time.Time    `json:"updatedAt"`
-	HTTPSPort int          `json:"httpsPort"`
-	HTTPPort  int          `json:"httpPort,omitempty"`
+	PID       int       `json:"pid"`
+	Build     string    `json:"build"`
+	StartedAt time.Time `json:"startedAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	HTTPSPort int       `json:"httpsPort"`
+	HTTPPort  int       `json:"httpPort,omitempty"`
+	// APIPort is the loopback port of the dashboard API.
+	APIPort   int          `json:"apiPort,omitempty"`
 	MDNS      string       `json:"mdns,omitempty"` // who publishes names: pier, mDNSResponder, or the Windows DNS client
 	MDNSError string       `json:"mdnsError,omitempty"`
 	Names     []NameStatus `json:"names"`

@@ -87,6 +87,17 @@ local:
 | `local.autostart` | Serve the names after login without running `pier up`. Pier adds a per-user login item (a macOS LaunchAgent, a systemd user unit, or the Windows `Run` key) while any project asks for it, and removes it when none do. |
 | `local.tls.cert`, `local.tls.key` | Serve your own certificate instead of Pier's, with paths relative to the project root. It must cover every `local` name in the project. Pier then skips its CA and the trust prompt. |
 
+### Dashboard API
+
+While the daemon runs, it serves a JSON API on `127.0.0.1` at a random port; `pier doctor` prints it as `api:`, and `--json` output includes it as `local.apiUrl`. It only answers requests whose `Host` is `127.0.0.1` or `localhost` on that port (so a DNS-rebinding page cannot use it), and every write must send an `X-Pier` header, which a cross-site page cannot send without a CORS preflight that the API never answers.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/status` | `{daemon, names, projects}`: the daemon (ports, warnings), every served name with its state, and every project with its names, live URLs, settings, and paused services |
+| `GET /api/requests?host=&limit=` | Recent proxied requests, newest first (`time, host, method, path, status, durationMs, bytes, client, userAgent`); the daemon keeps the last 500 in memory |
+| `GET /api/events` | Server-sent events: `status` (same shape as `/api/status`) whenever names, projects, or warnings change, and `request` for every proxied request |
+| `POST /api/projects/{id}/services/{service}/pause` and `.../resume` | Runs `pier pause` or `pier resume` for that project and returns its `--json` output |
+
 ## Discovery
 
 `pier` walks from the current directory toward the filesystem root looking for `pier.yaml`. `--config` selects an explicit file. `pier init` writes a minimal config and a UUID in `.pier/id`. `.pier/` is gitignored.

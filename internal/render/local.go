@@ -18,6 +18,7 @@ type JSONLocal struct {
 	CAPath    string   `json:"caPath,omitempty"`
 	CATrusted bool     `json:"caTrusted"`
 	CertDir   string   `json:"certDir,omitempty"`
+	APIURL    string   `json:"apiUrl,omitempty"`
 	Warnings  []string `json:"warnings,omitempty"`
 }
 
@@ -31,6 +32,7 @@ func jsonLocal(services []app.ServiceInfo, report localname.Report) *JSONLocal {
 		CAPath:    report.CAPath,
 		CATrusted: report.CATrusted,
 		CertDir:   report.CertDir,
+		APIURL:    report.APIURL,
 		Warnings:  localWarnings(report),
 	}
 }
@@ -123,6 +125,9 @@ func writeLocalDoctor(w io.Writer, domains []string, report localname.Report) {
 	}
 	if report.Running && report.HTTPSPort != 0 {
 		fmt.Fprintf(w, "  httpsPort: %d\n", report.HTTPSPort)
+	}
+	if report.APIURL != "" {
+		fmt.Fprintf(w, "  api: %s\n", report.APIURL)
 	}
 	for _, domain := range domains {
 		status, ok := report.Names[domain]

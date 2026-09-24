@@ -31,7 +31,9 @@ type Report struct {
 	CertIssued bool
 	// Autostart is set when the daemon starts at login for some project.
 	Autostart bool
-	Warnings  []string
+	// APIURL is the loopback dashboard API, while the daemon runs.
+	APIURL   string
+	Warnings []string
 }
 
 // URL is the browser address for name, or "" when it is not being served.
@@ -296,6 +298,9 @@ func (d *Directory) fill(report *Report, beat Heartbeat, running bool) {
 		return
 	}
 	report.HTTPSPort = beat.HTTPSPort
+	if beat.APIPort != 0 {
+		report.APIURL = fmt.Sprintf("http://127.0.0.1:%d/api", beat.APIPort)
+	}
 	report.Warnings = append(report.Warnings, beat.Warnings...)
 	if beat.MDNSError != "" {
 		report.Warnings = append(report.Warnings, beat.MDNSError)

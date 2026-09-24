@@ -44,11 +44,12 @@ type Proxy struct {
 	certs     map[string]*tls.Certificate
 	caPEM     []byte
 	httpsPort int
+	traffic   *traffic
 }
 
 // New returns an empty proxy. Routes and certificates are set by the daemon.
 func New() *Proxy {
-	return &Proxy{routes: map[string]*route{}, certs: map[string]*tls.Certificate{}, httpsPort: 443}
+	return &Proxy{routes: map[string]*route{}, certs: map[string]*tls.Certificate{}, httpsPort: 443, traffic: newTraffic()}
 }
 
 // SetRoutes replaces the route table. An invalid target rejects the whole set.
@@ -114,6 +115,10 @@ func (p *Proxy) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, er
 
 // HTTPS is the handler behind TLS: route by Host, forward to loopback.
 func (p *Proxy) HTTPS() http.Handler {
+	return p.record(p.route())
+}
+
+func (p *Proxy) route() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hops, _ := strconv.Atoi(r.Header.Get(hopHeader))
 		if hops >= maxHops {
