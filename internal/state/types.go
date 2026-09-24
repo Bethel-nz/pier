@@ -21,6 +21,7 @@ type ProjectState struct {
 	ConfigHash string          `json:"configHash,omitempty"`
 	Routes     []Route         `json:"routes,omitempty"`
 	Domains    []LocalDomain   `json:"domains,omitempty"`
+	Local      LocalSettings   `json:"local"`
 	Overrides  map[string]bool `json:"overrides,omitempty"`
 	Paused     map[string]bool `json:"paused,omitempty"`
 	UpdatedAt  time.Time       `json:"updatedAt"`
@@ -35,6 +36,17 @@ type Route struct {
 	Public bool `json:"public,omitempty"`
 	// Since is when Pier created the route or last changed it.
 	Since time.Time `json:"since,omitempty"`
+}
+
+// LocalSettings is how the daemon serves a project's local names.
+// The zero value is the default: on the LAN, Pier's certificate, no autostart.
+type LocalSettings struct {
+	// ThisMachineOnly refuses connections from other devices (local.lan: false).
+	ThisMachineOnly bool `json:"thisMachineOnly,omitempty"`
+	Autostart       bool `json:"autostart,omitempty"`
+	// CertFile and KeyFile are absolute paths to the user's own certificate.
+	CertFile string `json:"certFile,omitempty"`
+	KeyFile  string `json:"keyFile,omitempty"`
 }
 
 // LocalDomain is a .local name Pier serves for one service.

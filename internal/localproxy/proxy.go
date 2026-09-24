@@ -27,6 +27,8 @@ type Route struct {
 	Host    string
 	Target  string
 	Service string
+	// ThisMachineOnly refuses clients other than the machine running Pier.
+	ThisMachineOnly bool
 }
 
 type route struct {
@@ -125,6 +127,11 @@ func (p *Proxy) HTTPS() http.Handler {
 		p.mu.RUnlock()
 		if found == nil {
 			p.notFound(w, r, host)
+			return
+		}
+		if found.ThisMachineOnly && !fromThisMachine(r) {
+			writePage(w, http.StatusForbidden, "Only on the machine running Pier",
+				"<b>"+escape(host)+"</b> is set to <code>local.lan: false</code>, so Pier serves it to this computer only.")
 			return
 		}
 		found.proxy.ServeHTTP(w, r)
@@ -268,6 +275,28 @@ func normalizeHost(host string) string {
 		host = h
 	}
 	return strings.TrimSuffix(strings.ToLower(host), ".")
+}
+
+// fromThisMachine reports whether the client is this computer: loopback, or a
+// connection whose source address is the address it arrived on.
+func fromThisMachine(r *http.Request) bool {
+	if isLoopback(r.RemoteAddr) {
+		return true
+	}
+	remote, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return false
+	}
+	localHost, _, err := net.SplitHostPort(local.String())
+	if err != nil {
+		return false
+	}
+	remoteIP, localIP := net.ParseIP(remote), net.ParseIP(localHost)
+	return remoteIP != nil && remoteIP.Equal(localIP)
 }
 
 func isLoopback(remote string) bool {

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -363,7 +364,7 @@ type Service struct {
 
 // LocalNames serves .local domains: certificates, trust, and the daemon.
 type LocalNames interface {
-	Sync(ctx context.Context, root string, names []string) (localname.Report, error)
+	Sync(ctx context.Context, root string, names []string, settings state.LocalSettings) (localname.Report, error)
 	Status() localname.Report
 }
 
@@ -893,8 +894,13 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	if err != nil {
 		return &ApplyError{Err: err, Result: result}
 	}
+	settings := state.LocalSettings{}
+	if keepDomains {
+		settings = localSettings(sess.project.Root, sess.cfg.Local)
+	}
 	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
-	domainsChanged := !sameDomains(sess.state.Domains, domains) || (len(domains) > 0 && sess.state.Path != sess.project.Root)
+	domainsChanged := !sameDomains(sess.state.Domains, domains) || (len(domains) > 0 && sess.state.Path != sess.project.Root) ||
+		sess.state.Local != settings
 	if result.Verified == nil && !pausedChanged && !domainsChanged {
 		// Nothing to save, but the daemon may have stopped since: make it serve again.
 		return s.syncLocal(ctx, sess, domains)
@@ -914,6 +920,7 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	}
 	st.Paused = compactBoolMap(paused)
 	st.Domains = domains
+	st.Local = settings
 	st.UpdatedAt = s.clock()
 	if err := s.store.Save(st); err != nil {
 		return fmt.Errorf("Pier could not save project state: %w", err)
@@ -932,12 +939,30 @@ func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.
 	for _, domain := range domains {
 		names = append(names, domain.Name)
 	}
-	report, err := s.locals.Sync(ctx, sess.project.Root, names)
+	report, err := s.locals.Sync(ctx, sess.project.Root, names, sess.state.Local)
 	sess.local = report
 	if err != nil {
 		return fmt.Errorf("Pier could not serve local domains: %w", err)
 	}
 	return nil
+}
+
+// localSettings turns the local: block into saved state, resolving a
+// bring-your-own certificate against the project root.
+func localSettings(root string, local config.Local) state.LocalSettings {
+	settings := state.LocalSettings{ThisMachineOnly: !local.LAN, Autostart: local.Autostart}
+	if local.CertFile != "" && local.KeyFile != "" {
+		settings.CertFile = absolute(root, local.CertFile)
+		settings.KeyFile = absolute(root, local.KeyFile)
+	}
+	return settings
+}
+
+func absolute(root, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(root, path)
 }
 
 func strictHealth(results []health.Result) error {

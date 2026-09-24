@@ -73,6 +73,9 @@ func Validate(project Project) []ValidationError {
 			}
 		}
 	}
+	if (project.Local.CertFile == "") != (project.Local.KeyFile == "") {
+		errors = append(errors, ValidationError{Field: "local.tls", Message: "needs both cert and key"})
+	}
 
 	sort.SliceStable(errors, func(i, j int) bool {
 		if errors[i].Service != errors[j].Service {

@@ -12,6 +12,14 @@ func Normalize(cfg Config) (Project, error) {
 	project := Project{
 		Version: cfg.Version,
 		Name:    cfg.Name,
+		Local:   Local{LAN: true, Autostart: cfg.Local.Autostart},
+	}
+	if cfg.Local.LAN != nil {
+		project.Local.LAN = *cfg.Local.LAN
+	}
+	if cfg.Local.TLS != nil {
+		project.Local.CertFile = strings.TrimSpace(cfg.Local.TLS.Cert)
+		project.Local.KeyFile = strings.TrimSpace(cfg.Local.TLS.Key)
 	}
 
 	names := make([]string, 0, len(cfg.Services))

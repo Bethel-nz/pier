@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -12,13 +13,15 @@ import (
 )
 
 type fakeLocal struct {
-	syncs  [][]string
-	roots  []string
-	report localname.Report
+	syncs    [][]string
+	settings state.LocalSettings
+	roots    []string
+	report   localname.Report
 }
 
-func (f *fakeLocal) Sync(_ context.Context, root string, names []string) (localname.Report, error) {
+func (f *fakeLocal) Sync(_ context.Context, root string, names []string, settings state.LocalSettings) (localname.Report, error) {
 	f.syncs = append(f.syncs, names)
+	f.settings = settings
 	f.roots = append(f.roots, root)
 	return f.report, nil
 }
@@ -194,6 +197,26 @@ func TestCopyLocalReturnsTheServedURL(t *testing.T) {
 	}
 	if _, err := svc.Copy(context.Background(), CopyRequest{Start: env.project.Root, Service: "api", Local: true}); err == nil {
 		t.Fatal("Copy(--local) of a name that is not live should explain why")
+	}
+}
+
+func TestUpSavesLocalSettingsWithAbsoluteCertPaths(t *testing.T) {
+	env := domainEnv()
+	lan := false
+	env.raw.Local = config.LocalSettings{LAN: &lan, Autostart: true, TLS: &config.TLSFiles{Cert: "certs/dev.pem", Key: "/etc/dev-key.pem"}}
+	local := &fakeLocal{report: liveReport("myapp.local", "api.myapp.local")}
+	svc := env.service()
+	svc.EnableLocalNames(local)
+
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	want := state.LocalSettings{
+		ThisMachineOnly: true, Autostart: true,
+		CertFile: filepath.Join(env.project.Root, "certs/dev.pem"), KeyFile: "/etc/dev-key.pem",
+	}
+	if env.saved == nil || env.saved.Local != want || local.settings != want {
+		t.Fatalf("saved %+v, synced %+v, want %+v", env.saved.Local, local.settings, want)
 	}
 }
 

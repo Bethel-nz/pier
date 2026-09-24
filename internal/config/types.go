@@ -5,7 +5,24 @@ type Config struct {
 	Version  int                `yaml:"version"`
 	Name     string             `yaml:"name"`
 	Defaults Defaults           `yaml:"defaults"`
+	Local    LocalSettings      `yaml:"local"`
 	Services map[string]Service `yaml:"services"`
+}
+
+// LocalSettings configure how the project's local: names are served.
+type LocalSettings struct {
+	// LAN defaults to true. false serves the names to this machine only.
+	LAN *bool `yaml:"lan"`
+	// Autostart serves the names after login without running pier up.
+	Autostart bool `yaml:"autostart"`
+	// TLS replaces Pier's certificate with your own.
+	TLS *TLSFiles `yaml:"tls"`
+}
+
+// TLSFiles are a certificate and key, relative to the project root.
+type TLSFiles struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
 }
 
 // Defaults contains values inherited by services that omit them.
@@ -37,7 +54,17 @@ const (
 type Project struct {
 	Version  int
 	Name     string
+	Local    Local
 	Services []ResolvedService
+}
+
+// Local is the normalized local: block. Cert and Key stay as written;
+// the caller resolves them against the project root.
+type Local struct {
+	LAN       bool
+	Autostart bool
+	CertFile  string
+	KeyFile   string
 }
 
 // ResolvedService is a service with inherited values and listener allocation applied.

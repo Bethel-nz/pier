@@ -34,7 +34,7 @@ func TestRoutesKeepTheFirstClaimAndReportTheRest(t *testing.T) {
 	if len(routes) != 2 || routes[0].Name != "api.local" || routes[1].Name != "app.local" {
 		t.Fatalf("routes = %+v", routes)
 	}
-	if routes[1].ProjectID != "a" || routes[1].CertDir != filepath.Join("/a", ".pier", "certs") {
+	if routes[1].ProjectID != "a" || routes[1].CertFile != filepath.Join("/a", ".pier", "certs", "cert.pem") {
 		t.Fatalf("app.local route = %+v, want project a's claim", routes[1])
 	}
 	if len(conflicts) != 1 || conflicts[0].ProjectID != "b" || conflicts[0].Winner != "a" {

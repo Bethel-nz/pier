@@ -117,6 +117,7 @@ func writeLocalDoctor(w io.Writer, domains []string, report localname.Report) {
 	fmt.Fprintln(w, "Local names")
 	writeDoctorFlag(w, "daemon", report.Running)
 	writeDoctorFlag(w, "caTrusted", report.CATrusted)
+	writeDoctorFlag(w, "autostart", report.Autostart)
 	if report.CAPath != "" {
 		fmt.Fprintf(w, "  ca: %s\n", report.CAPath)
 	}

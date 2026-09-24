@@ -96,6 +96,10 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 		}
 	}
 
+	if err := d.setAutostart(false); err != nil {
+		fail("remove the login item", err)
+	}
+
 	for _, name := range runtimeFiles {
 		path, err := runtimePath(name)
 		if err != nil {

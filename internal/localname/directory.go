@@ -29,7 +29,9 @@ type Report struct {
 	CertDir    string
 	// CertIssued is set when this sync wrote a new or renewed certificate.
 	CertIssued bool
-	Warnings   []string
+	// Autostart is set when the daemon starts at login for some project.
+	Autostart bool
+	Warnings  []string
 }
 
 // URL is the browser address for name, or "" when it is not being served.
@@ -62,21 +64,25 @@ type Directory struct {
 	now         func() time.Time
 	wait        time.Duration
 	untrust     func(*x509.Certificate, string) error
+	loginItem   func(exe string, on bool) error
 }
 
 // NewDirectory manages local names for projects saved in store.
 func NewDirectory(store *state.Store) *Directory {
 	caDir, _ := certs.DefaultCADir()
-	return &Directory{projects: store, caDir: caDir, now: time.Now, wait: 6 * time.Second, untrust: trust.Remove}
+	return &Directory{
+		projects: store, caDir: caDir, now: time.Now, wait: 6 * time.Second,
+		untrust: trust.Remove, loginItem: setLoginItem,
+	}
 }
 
 // Sync is called after pier up, pause, resume, or down saved state. names are
 // the project's served names. Certificates and trust are handled first, then
 // the daemon is started (or told to stop when no project has names left).
-func (d *Directory) Sync(ctx context.Context, root string, names []string) (Report, error) {
+func (d *Directory) Sync(ctx context.Context, root string, names []string, settings state.LocalSettings) (Report, error) {
 	report := Report{Names: map[string]NameStatus{}}
 	if len(names) > 0 {
-		if err := d.prepare(root, names, &report); err != nil {
+		if err := d.prepare(root, names, settings, &report); err != nil {
 			return report, err
 		}
 	}
@@ -85,6 +91,11 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string) (Repo
 		return report, fmt.Errorf("Pier could not read local domains: %w", err)
 	}
 	routes, _ := Routes(saved)
+	// The login item exists exactly while some project asks for autostart.
+	report.Autostart = wantsAutostart(saved)
+	if err := d.setAutostart(report.Autostart); err != nil {
+		report.Warnings = append(report.Warnings, "Pier could not update autostart: "+err.Error())
+	}
 	beat, beatErr := readHeartbeat()
 	running := beatErr == nil && beat.Fresh(d.now())
 	if len(routes) == 0 {
@@ -115,6 +126,9 @@ func (d *Directory) Status() Report {
 		report.CAPath = ca.CertPath()
 		report.CATrusted = trust.IsTrusted(ca.Cert, ca.CertPath())
 		report.Warnings = append(report.Warnings, browserStoreWarnings()...)
+	}
+	if saved, err := d.projects.List(); err == nil {
+		report.Autostart = wantsAutostart(saved)
 	}
 	beat, err := readHeartbeat()
 	d.fill(&report, beat, err == nil && beat.Fresh(d.now()))
@@ -147,7 +161,16 @@ func (d *Directory) Untrust() (string, error) {
 	return ca.CertPath(), trust.Remove(ca.Cert, ca.CertPath())
 }
 
-func (d *Directory) prepare(root string, names []string, report *Report) error {
+func (d *Directory) prepare(root string, names []string, settings state.LocalSettings, report *Report) error {
+	if settings.CertFile != "" {
+		// Bring-your-own certificate: no CA, no issuing, no trust prompt.
+		if err := certs.CheckPair(settings.CertFile, settings.KeyFile, names); err != nil {
+			return fmt.Errorf("Pier cannot serve with local.tls: %w", err)
+		}
+		report.CertDir = filepath.Dir(settings.CertFile)
+		report.CATrusted = true
+		return nil
+	}
 	ca, created, err := certs.LoadOrCreateCA(d.caDir, d.now())
 	if err != nil {
 		return fmt.Errorf("Pier could not create its local CA: %w", err)

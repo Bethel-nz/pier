@@ -181,7 +181,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	names := make([]string, 0, len(routes))
 	for _, route := range routes {
 		status := NameStatus{Name: route.Name, Service: route.Service, Project: route.ProjectID, Target: route.Target}
-		cert, certErr := d.certificate(route.CertDir)
+		cert, certErr := d.certificate(route.CertFile, route.KeyFile)
 		if certErr != nil {
 			status.State = StateNoCertificate
 			status.Detail = certErr.Error()
@@ -189,7 +189,9 @@ func (d *daemon) reconcile(now time.Time) bool {
 			continue
 		}
 		served[route.Name] = cert
-		proxied = append(proxied, localproxy.Route{Host: route.Name, Target: route.Target, Service: route.Service})
+		proxied = append(proxied, localproxy.Route{
+			Host: route.Name, Target: route.Target, Service: route.Service, ThisMachineOnly: route.ThisMachineOnly,
+		})
 		names = append(names, route.Name)
 		statuses = append(statuses, status)
 	}
@@ -240,20 +242,21 @@ func (d *daemon) reconcile(now time.Time) bool {
 }
 
 // certificate loads a project's leaf, reloading it when the file changes.
-func (d *daemon) certificate(dir string) (*tls.Certificate, error) {
-	modTime, err := certs.LeafModTime(dir)
+func (d *daemon) certificate(certFile, keyFile string) (*tls.Certificate, error) {
+	info, err := os.Stat(certFile)
 	if err != nil {
 		return nil, errors.New("no certificate yet; run pier up in the project")
 	}
-	if cached, ok := d.certs[dir]; ok && cached.modTime.Equal(modTime) {
+	modTime := info.ModTime()
+	if cached, ok := d.certs[certFile]; ok && cached.modTime.Equal(modTime) {
 		return cached.cert, cached.err
 	}
-	pair, err := certs.LoadLeaf(dir)
+	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 	loaded := loadedCert{modTime: modTime, err: err}
 	if err == nil {
 		loaded.cert = &pair
 	}
-	d.certs[dir] = loaded
+	d.certs[certFile] = loaded
 	return loaded.cert, loaded.err
 }
 

@@ -13,7 +13,10 @@ type Route struct {
 	Service   string
 	Target    string
 	ProjectID string
-	CertDir   string
+	CertFile  string
+	KeyFile   string
+	// ThisMachineOnly refuses connections from other devices.
+	ThisMachineOnly bool
 }
 
 // Conflict is a name that two projects both declared. The first claim wins.
@@ -43,12 +46,19 @@ func Routes(projects []state.ProjectState) ([]Route, []Conflict) {
 				continue
 			}
 			owner[domain.Name] = project.ProjectID
+			certFile := filepath.Join(project.Path, ".pier", "certs", "cert.pem")
+			keyFile := filepath.Join(project.Path, ".pier", "certs", "key.pem")
+			if project.Local.CertFile != "" {
+				certFile, keyFile = project.Local.CertFile, project.Local.KeyFile
+			}
 			routes = append(routes, Route{
-				Name:      domain.Name,
-				Service:   domain.Service,
-				Target:    domain.Target,
-				ProjectID: project.ProjectID,
-				CertDir:   filepath.Join(project.Path, ".pier", "certs"),
+				Name:            domain.Name,
+				Service:         domain.Service,
+				Target:          domain.Target,
+				ProjectID:       project.ProjectID,
+				CertFile:        certFile,
+				KeyFile:         keyFile,
+				ThisMachineOnly: project.Local.ThisMachineOnly,
 			})
 		}
 	}

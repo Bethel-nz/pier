@@ -296,6 +296,28 @@ func LoadLeaf(dir string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(filepath.Join(dir, leafCertFile), filepath.Join(dir, leafKeyFile))
 }
 
+// CheckPair verifies a bring-your-own certificate: the key matches, it has
+// not expired, and it covers every name Pier will serve with it.
+func CheckPair(certFile, keyFile string, names []string) error {
+	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return fmt.Errorf("load %s and %s: %w", certFile, keyFile, err)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return err
+	}
+	if time.Now().After(leaf.NotAfter) {
+		return fmt.Errorf("%s expired on %s", certFile, leaf.NotAfter.Format("2006-01-02"))
+	}
+	for _, name := range names {
+		if err := leaf.VerifyHostname(name); err != nil {
+			return fmt.Errorf("%s does not cover %s", certFile, name)
+		}
+	}
+	return nil
+}
+
 // LeafModTime reports when a project's certificate last changed, for reloads.
 func LeafModTime(dir string) (time.Time, error) {
 	info, err := os.Stat(filepath.Join(dir, leafCertFile))

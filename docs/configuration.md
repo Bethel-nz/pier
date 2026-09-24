@@ -68,6 +68,25 @@ A background daemon (`pier locald`, started by `pier up`) answers multicast DNS 
 
 `pier status` shows a local URL only while the daemon serves the name. Otherwise it shows the state: `probing`, `conflict` (another device or project answers for the name), `paused`, or `down`.
 
+### `local` settings
+
+An optional top-level `local` block changes how the project's names are served:
+
+```yaml
+local:
+  lan: false          # default true
+  autostart: true     # default false
+  tls:
+    cert: certs/dev.pem
+    key: certs/dev-key.pem
+```
+
+| Field | Meaning |
+| --- | --- |
+| `local.lan` | `false` serves the names to this machine only: other devices get `403`. They can still see the name, because hiding it would need `sudo`. |
+| `local.autostart` | Serve the names after login without running `pier up`. Pier adds a per-user login item (a macOS LaunchAgent, a systemd user unit, or the Windows `Run` key) while any project asks for it, and removes it when none do. |
+| `local.tls.cert`, `local.tls.key` | Serve your own certificate instead of Pier's, with paths relative to the project root. It must cover every `local` name in the project. Pier then skips its CA and the trust prompt. |
+
 ## Discovery
 
 `pier` walks from the current directory toward the filesystem root looking for `pier.yaml`. `--config` selects an explicit file. `pier init` writes a minimal config and a UUID in `.pier/id`. `.pier/` is gitignored.
