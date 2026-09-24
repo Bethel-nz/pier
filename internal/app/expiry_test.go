@@ -1,10 +1,12 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/reconcile"
 	"github.com/Bethel-nz/pier/internal/state"
 )
 
@@ -60,6 +62,25 @@ func TestPublicWindowOpensOnUpAndCloses(t *testing.T) {
 		if info.Name == "demo" && (!info.Public || !info.PublicUntil.IsZero()) {
 			t.Fatalf("shared demo = %+v", info)
 		}
+	}
+}
+
+func TestUntimedPublicHintsOnceWhenCreated(t *testing.T) {
+	cfg := timedProject(t) // demo: public 2h, hooks: public forever
+	create := func(service string) reconcile.Operation {
+		return reconcile.Operation{Kind: reconcile.KindCreate, After: reconcile.Route{Service: service, HTTPSPort: 443, Public: true}}
+	}
+	plan := reconcile.Plan{Operations: []reconcile.Operation{create("demo"), create("hooks")}}
+	hints := untimedPublic(plan, cfg, nil)
+	if len(hints) != 1 || !strings.HasPrefix(hints[0], "hooks is now PUBLIC with no time limit") {
+		t.Fatalf("hints = %v", hints)
+	}
+	kept := reconcile.Plan{Operations: []reconcile.Operation{{Kind: reconcile.KindKeep, After: reconcile.Route{Service: "hooks", Public: true}}}}
+	if hints := untimedPublic(kept, cfg, nil); len(hints) != 0 {
+		t.Fatalf("an existing public route was hinted again: %v", hints)
+	}
+	if hints := untimedPublic(plan, cfg, map[string]bool{"hooks": true}); len(hints) != 0 {
+		t.Fatalf("pier share was second-guessed: %v", hints)
 	}
 }
 
