@@ -94,11 +94,11 @@ Give a service a `local` name ending in `.local`, and `pier up` serves it over H
 services:
   web:
     target: localhost:3000
-    local: greppa.local
+    local: myapp.local
 ```
 
 ```
-local  web  https://greppa.local/
+local  web  https://myapp.local/
 ```
 
 Nothing else to install. On `pier up`, Pier:

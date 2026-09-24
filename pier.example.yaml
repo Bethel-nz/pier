@@ -9,7 +9,7 @@ services:
   web:
     target: localhost:3000
     path: /
-    local: greppa.local
+    local: myapp.local
 
   api:
     target: localhost:4000

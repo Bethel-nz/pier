@@ -1,14 +1,14 @@
 # Private Tailscale URLs plus HTTPS .local names for phones and laptops on the same Wi-Fi.
 version: 1
-name: greppa
+name: myapp
 
 services:
   web:
     target: localhost:3000
     path: /
-    local: greppa.local
+    local: myapp.local
 
   api:
     target: localhost:4000
     path: /api
-    local: api.greppa.local
+    local: api.myapp.local

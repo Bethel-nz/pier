@@ -16,7 +16,7 @@ services:
   web:
     target: localhost:3000
     path: /
-    local: greppa.local
+    local: myapp.local
 
   api:
     target: localhost:4000
@@ -60,7 +60,7 @@ Serve and Funnel never share a listener. Changing `public` (or using `pier share
 
 ## Local names
 
-`local` must be a lowercase hostname ending in `.local`, such as `greppa.local` or `api.greppa.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to the Tailscale URL.
+`local` must be a lowercase hostname ending in `.local`, such as `myapp.local` or `api.myapp.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to the Tailscale URL.
 
 `pier up` issues `.pier/certs/cert.pem` and `key.pem` for the project's local names, signed by a per-user CA in the user config directory (`pier/ca/`). The CA is name-constrained to `.local`. Apps may reuse the project certificate directly, for example as Vite's `server.https`.
 

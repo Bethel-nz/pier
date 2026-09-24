@@ -35,8 +35,8 @@ func (l listingEnv) List() ([]state.ProjectState, error) { return l.others, nil 
 func domainEnv() *fakeEnv {
 	env := newEnv()
 	env.raw.Services = map[string]config.Service{
-		"web": {Target: "localhost:3000", Domain: "greppa.local"},
-		"api": {Target: "localhost:4000", Path: "/api", Domain: "api.greppa.local"},
+		"web": {Target: "localhost:3000", Domain: "myapp.local"},
+		"api": {Target: "localhost:4000", Path: "/api", Domain: "api.myapp.local"},
 	}
 	env.after = env.desiredRoutes()
 	return env
@@ -52,7 +52,7 @@ func liveReport(names ...string) localname.Report {
 
 func TestUpServesDomainsAndReportsLiveURLs(t *testing.T) {
 	env := domainEnv()
-	local := &fakeLocal{report: liveReport("greppa.local", "api.greppa.local")}
+	local := &fakeLocal{report: liveReport("myapp.local", "api.myapp.local")}
 	svc := env.service()
 	svc.EnableLocalNames(local)
 
@@ -60,7 +60,7 @@ func TestUpServesDomainsAndReportsLiveURLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Up() = %v", err)
 	}
-	if len(local.syncs) != 1 || !reflect.DeepEqual(local.syncs[0], []string{"api.greppa.local", "greppa.local"}) {
+	if len(local.syncs) != 1 || !reflect.DeepEqual(local.syncs[0], []string{"api.myapp.local", "myapp.local"}) {
 		t.Fatalf("Sync names = %v", local.syncs)
 	}
 	if local.roots[0] != env.project.Root {
@@ -78,8 +78,8 @@ func TestUpServesDomainsAndReportsLiveURLs(t *testing.T) {
 
 func TestUpShowsNoLocalURLUntilTheNameIsLive(t *testing.T) {
 	env := domainEnv()
-	report := liveReport("api.greppa.local")
-	report.Names["greppa.local"] = localname.NameStatus{Name: "greppa.local", State: localname.StateConflict}
+	report := liveReport("api.myapp.local")
+	report.Names["myapp.local"] = localname.NameStatus{Name: "myapp.local", State: localname.StateConflict}
 	svc := env.service()
 	svc.EnableLocalNames(&fakeLocal{report: report})
 
@@ -98,7 +98,7 @@ func TestTakenDomainIsRefusedBeforeTailscaleChanges(t *testing.T) {
 	svc := env.service()
 	svc.store = listingEnv{fakeEnv: env, others: []state.ProjectState{{
 		ProjectID: "someone-else",
-		Domains:   []state.LocalDomain{{Name: "greppa.local", Target: "http://127.0.0.1:9000"}},
+		Domains:   []state.LocalDomain{{Name: "myapp.local", Target: "http://127.0.0.1:9000"}},
 	}}}
 	local := &fakeLocal{}
 	svc.EnableLocalNames(local)
@@ -117,7 +117,7 @@ func TestTakenDomainIsRefusedBeforeTailscaleChanges(t *testing.T) {
 
 func TestPausedServiceIsWithdrawnLocally(t *testing.T) {
 	env := domainEnv()
-	local := &fakeLocal{report: liveReport("api.greppa.local")}
+	local := &fakeLocal{report: liveReport("api.myapp.local")}
 	svc := env.service()
 	svc.EnableLocalNames(local)
 
@@ -125,7 +125,7 @@ func TestPausedServiceIsWithdrawnLocally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(local.syncs[len(local.syncs)-1], []string{"api.greppa.local"}) {
+	if !reflect.DeepEqual(local.syncs[len(local.syncs)-1], []string{"api.myapp.local"}) {
 		t.Fatalf("Sync names = %v, want only the unpaused name", local.syncs)
 	}
 	if result.Service.LocalState != "paused" || result.Service.LocalURL != "" {
@@ -135,7 +135,7 @@ func TestPausedServiceIsWithdrawnLocally(t *testing.T) {
 
 func TestDownWithdrawsEveryName(t *testing.T) {
 	env := domainEnv()
-	env.state.Domains = []state.LocalDomain{{Service: "web", Name: "greppa.local", Target: "http://127.0.0.1:3000"}}
+	env.state.Domains = []state.LocalDomain{{Service: "web", Name: "myapp.local", Target: "http://127.0.0.1:3000"}}
 	env.state.Path = env.project.Root
 	local := &fakeLocal{}
 	svc := env.service()
@@ -185,10 +185,10 @@ func TestProjectsWithoutDomainsNeverTouchTheDaemon(t *testing.T) {
 func TestCopyLocalReturnsTheServedURL(t *testing.T) {
 	env := domainEnv()
 	svc := env.service()
-	svc.EnableLocalNames(&fakeLocal{report: liveReport("greppa.local")})
+	svc.EnableLocalNames(&fakeLocal{report: liveReport("myapp.local")})
 
 	result, err := svc.Copy(context.Background(), CopyRequest{Start: env.project.Root, Service: "web", Local: true})
-	if err != nil || result.URL != "https://greppa.local/" {
+	if err != nil || result.URL != "https://myapp.local/" {
 		t.Fatalf("Copy(--local) = %q, %v", result.URL, err)
 	}
 	if _, err := svc.Copy(context.Background(), CopyRequest{Start: env.project.Root, Service: "api", Local: true}); err == nil {
