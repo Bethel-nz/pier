@@ -738,7 +738,7 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict, re
 			return result, err
 		}
 	}
-	result.Warnings = s.foreignPublic(&sess)
+	result.Warnings = append(s.foreignPublic(&sess), untimedPublic(sess.plan, sess.cfg, overrides)...)
 	err = s.applyAndPersist(ctx, &sess, overrides, paused, true)
 	result.Local = sess.local
 	withLocal(result.Services, sess.local)

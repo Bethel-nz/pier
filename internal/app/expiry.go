@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/config"
+	"github.com/Bethel-nz/pier/internal/reconcile"
 	"github.com/Bethel-nz/pier/internal/state"
 )
 
@@ -52,6 +53,26 @@ func withPublicUntil(infos []ServiceInfo, until map[string]time.Time, overrides 
 			infos[i].PublicUntil = end
 		}
 	}
+}
+
+// untimedPublic suggests a time limit when this run makes a service public
+// without one. It speaks once, as the route is created, not on every up.
+func untimedPublic(plan reconcile.Plan, cfg config.Project, overrides map[string]bool) []string {
+	timed := map[string]bool{}
+	for _, service := range cfg.Services {
+		timed[service.Name] = service.PublicFor > 0
+	}
+	var hints []string
+	for _, op := range plan.Operations {
+		if op.Kind != reconcile.KindCreate && op.Kind != reconcile.KindUpdate || !op.After.Public {
+			continue
+		}
+		if _, shared := overrides[op.After.Service]; shared || timed[op.After.Service] {
+			continue
+		}
+		hints = append(hints, op.After.Service+" is now PUBLIC with no time limit; public: 2h in pier.yaml would close it on its own")
+	}
+	return hints
 }
 
 // needsDaemon reports whether Pier's background process has work for the
