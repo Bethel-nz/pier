@@ -39,7 +39,15 @@ type Report struct {
 	APIURL string
 	// LANAddress is this machine's LAN address, for the plain-HTTP fallback URLs.
 	LANAddress string
-	Warnings   []string
+	// Tunnels are the running Cloudflare Tunnels, by project ID.
+	Tunnels  map[string]TunnelStatus
+	Warnings []string
+}
+
+// Tunnel is the state of the project's Cloudflare Tunnel, if the daemon runs one.
+func (r Report) Tunnel(projectID string) (TunnelStatus, bool) {
+	status, ok := r.Tunnels[projectID]
+	return status, ok && r.Running
 }
 
 // LANURL is the plain-HTTP fallback address for name on this machine's LAN
@@ -143,7 +151,7 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string, setti
 			return report, err
 		}
 	}
-	beat, err = d.waitServing(ctx, names, tapPorts(saved, root))
+	beat, err = d.waitServing(ctx, names, tapPorts(saved, root), tunnelAt(saved, root))
 	d.fill(&report, beat, err == nil)
 	return report, err
 }
@@ -159,6 +167,16 @@ func tapPorts(saved []state.ProjectState, root string) []int {
 		}
 	}
 	return ports
+}
+
+// tunnelAt is the ID of the project at root when it has a tunnel to serve.
+func tunnelAt(saved []state.ProjectState, root string) string {
+	for _, project := range saved {
+		if project.Path == root && project.Tunnel.Serving() {
+			return project.ProjectID
+		}
+	}
+	return ""
 }
 
 // Status reads the daemon's heartbeat without changing anything.
@@ -274,9 +292,9 @@ func ignorePierDir(root string) error {
 	return err
 }
 
-// waitServing waits until the daemon reports every name past probing and
-// every tap port opened (or failed).
-func (d *Directory) waitServing(ctx context.Context, names []string, taps []int) (Heartbeat, error) {
+// waitServing waits until the daemon reports every name past probing, every
+// tap port opened (or failed), and the project's tunnel connected (or failed).
+func (d *Directory) waitServing(ctx context.Context, names []string, taps []int, tunnel string) (Heartbeat, error) {
 	deadline := d.now().Add(d.wait)
 	var last Heartbeat
 	for {
@@ -286,7 +304,7 @@ func (d *Directory) waitServing(ctx context.Context, names []string, taps []int)
 			if beat.Error != "" {
 				return beat, errors.New(beat.Error)
 			}
-			if settled(beat, names) && tapsReported(beat, taps) {
+			if settled(beat, names) && tapsReported(beat, taps) && tunnelSettled(beat, tunnel) {
 				return beat, nil
 			}
 		} else if err == nil && beat.Error != "" && beat.Build == buildID() {
@@ -333,6 +351,18 @@ func tapsReported(beat Heartbeat, ports []int) bool {
 	return true
 }
 
+func tunnelSettled(beat Heartbeat, project string) bool {
+	if project == "" {
+		return true
+	}
+	for _, tunnel := range beat.Tunnels {
+		if tunnel.Project == project {
+			return tunnel.State != TunnelConnecting
+		}
+	}
+	return false
+}
+
 func (d *Directory) waitGone(ctx context.Context, pid int) {
 	deadline := d.now().Add(3 * time.Second)
 	for d.now().Before(deadline) {
@@ -364,6 +394,10 @@ func (d *Directory) fill(report *Report, beat Heartbeat, running bool) {
 	}
 	for _, status := range beat.Names {
 		report.Names[status.Name] = status
+	}
+	report.Tunnels = map[string]TunnelStatus{}
+	for _, tunnel := range beat.Tunnels {
+		report.Tunnels[tunnel.Project] = tunnel
 	}
 }
 

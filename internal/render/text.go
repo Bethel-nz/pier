@@ -129,6 +129,7 @@ func (o Options) Up(result app.UpResult, err error) error {
 	default:
 		writeOperations(o.Out, result.Plan.Operations)
 	}
+	writeTunnelSetup(o.Out, result.Cloudflare)
 	writeServiceTable(o.Out, result.Services)
 	writeLocalSetup(o.Out, result.Services, result.Local)
 	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
@@ -147,8 +148,13 @@ func (o Options) Down(result app.DownResult, err error) error {
 	if err != nil {
 		return o.Error(err)
 	}
+	if result.TunnelStopped != "" {
+		fmt.Fprintf(o.Out, "cloudflare   tunnel %s stopped\n", result.TunnelStopped)
+	}
 	if result.TailscaleSkipped != "" {
-		fmt.Fprintln(o.Out, "local names withdrawn")
+		if result.NamesWithdrawn || result.TunnelStopped == "" {
+			fmt.Fprintln(o.Out, "local names withdrawn")
+		}
 		if result.KeptRoutes > 0 {
 			writeTailscaleSkipped(o.Out, fmt.Sprintf("%s; %d Tailscale route(s) stay until pier down runs with Tailscale up", result.TailscaleSkipped, result.KeptRoutes))
 		}
@@ -228,6 +234,9 @@ func (o Options) Machine(result app.MachineResult, err error) error {
 
 // publicColumn is loud for a service anyone on the internet can reach.
 func publicColumn(service app.ServiceInfo) string {
+	if service.Cloudflare != "" {
+		return "PUBLIC (cloudflare)"
+	}
 	if !service.Public {
 		return "no"
 	}
@@ -395,7 +404,7 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			service.Name,
 			displayTarget(service),
-			service.Path,
+			orDash(service.Path),
 			publicColumn(service),
 			strconv.FormatBool(service.Paused),
 			healthStatus,
@@ -404,6 +413,36 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 	}
 	_ = tab.Flush()
 	writeLocalNames(w, services)
+	writeCloudflare(w, services)
+}
+
+// writeCloudflare prints one line per Cloudflare service: its URL when the
+// tunnel is connected, otherwise its state and why.
+func writeCloudflare(w io.Writer, services []app.ServiceInfo) {
+	for _, service := range services {
+		switch {
+		case service.Cloudflare == "":
+		case service.CloudflareURL != "":
+			fmt.Fprintf(w, "public %s  %s  (cloudflare)\n", service.Name, service.CloudflareURL)
+		case service.CloudflareDetail != "":
+			fmt.Fprintf(w, "public %s  %s  (cloudflare %s: %s)\n", service.Name, service.Cloudflare, service.CloudflareState, service.CloudflareDetail)
+		default:
+			fmt.Fprintf(w, "public %s  %s  (cloudflare %s)\n", service.Name, service.Cloudflare, orDash(service.CloudflareState))
+		}
+	}
+}
+
+// writeTunnelSetup prints what pier up changed in Cloudflare.
+func writeTunnelSetup(w io.Writer, setup app.TunnelSetup) {
+	if setup.LoggedIn {
+		fmt.Fprintln(w, "cloudflare   logged in")
+	}
+	if setup.Created {
+		fmt.Fprintf(w, "cloudflare   created tunnel %s\n", setup.Tunnel)
+	}
+	for _, host := range setup.Routed {
+		fmt.Fprintf(w, "cloudflare   %s → tunnel %s\n", host, setup.Tunnel)
+	}
 }
 
 // writeTailscaleSkipped explains that Tailscale was left alone and why.

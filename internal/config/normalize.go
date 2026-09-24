@@ -13,6 +13,7 @@ func Normalize(cfg Config) (Project, error) {
 	project := Project{
 		Version: cfg.Version,
 		Name:    cfg.Name,
+		Domain:  normalizeDomain(cfg.Domain),
 		Local:   Local{LAN: true, Autostart: cfg.Local.Autostart},
 	}
 	if cfg.Local.LAN != nil {
@@ -45,6 +46,17 @@ func Normalize(cfg Config) (Project, error) {
 			public = service.Public.On
 			publicFor = service.Public.For
 		}
+		provider := strings.ToLower(strings.TrimSpace(service.Provider))
+		if provider == "" {
+			provider = ProviderTailscale
+		}
+		cloudflare := ""
+		if provider == ProviderCloudflare {
+			// Served by Cloudflare instead of Tailscale: defaults.public does not apply.
+			public, publicFor = false, 0
+			cloudflare = publicHostname(name, service.Hostname, project.Domain)
+		}
+		pathSet := strings.TrimSpace(service.Path) != "" && strings.TrimSpace(service.Path) != "/"
 
 		servicePath := service.Path
 		if servicePath == "" {
@@ -69,15 +81,17 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		project.Services = append(project.Services, ResolvedService{
-			Name:      name,
-			Target:    target,
-			Host:      host,
-			Port:      port,
-			HTTPSPort: httpsPort,
-			Path:      servicePath,
-			Protocol:  Protocol(protocol),
-			Public:    public,
-			Domain:    normalizeDomain(service.Domain),
+			Name:       name,
+			Target:     target,
+			Host:       host,
+			Port:       port,
+			HTTPSPort:  httpsPort,
+			Path:       servicePath,
+			Protocol:   Protocol(protocol),
+			Public:     public,
+			Domain:     normalizeDomain(service.Domain),
+			Provider:   provider,
+			Cloudflare: cloudflare,
 			Run: Run{
 				Command: strings.TrimSpace(service.Run),
 				Dir:     strings.TrimSpace(service.Dir),
@@ -90,7 +104,9 @@ func Normalize(cfg Config) (Project, error) {
 			throttle:      service.Throttle,
 			capture:       strings.TrimSpace(service.Capture),
 			publicProblem: service.Public.problem(),
-			pathSet:       Protocol(protocol) == ProtocolTCP && strings.TrimSpace(service.Path) != "" && strings.TrimSpace(service.Path) != "/",
+			pathSet:       (Protocol(protocol) == ProtocolTCP || provider == ProviderCloudflare) && pathSet,
+			publicSet:     provider == ProviderCloudflare && service.Public != nil,
+			hostname:      strings.TrimSpace(service.Hostname),
 			listenSet:     service.Listen != 0,
 		})
 	}

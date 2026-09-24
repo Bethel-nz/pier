@@ -4,8 +4,11 @@ import "time"
 
 // Config is the project configuration as represented in pier.yaml.
 type Config struct {
-	Version  int                `yaml:"version"`
-	Name     string             `yaml:"name"`
+	Version int    `yaml:"version"`
+	Name    string `yaml:"name"`
+	// Domain is a domain on your Cloudflare account, such as example.com.
+	// Services with provider: cloudflare are served under it.
+	Domain   string             `yaml:"domain"`
 	Defaults Defaults           `yaml:"defaults"`
 	Local    LocalSettings      `yaml:"local"`
 	Services map[string]Service `yaml:"services"`
@@ -57,7 +60,19 @@ type Service struct {
 	// Listen is the port a TCP service is reached on, over Tailscale and on
 	// the LAN. It defaults to the target's port.
 	Listen uint16 `yaml:"listen"`
+	// Provider is who serves the service beyond this machine: tailscale (the
+	// default) or cloudflare, which serves it publicly under Domain.
+	Provider string `yaml:"provider"`
+	// Hostname is the name under Domain for a Cloudflare service, such as
+	// api-v2 for api-v2.example.com. It defaults to the service name.
+	Hostname string `yaml:"hostname"`
 }
+
+// Providers serve a service beyond this machine.
+const (
+	ProviderTailscale  = "tailscale"
+	ProviderCloudflare = "cloudflare"
+)
 
 // Protocol is how Pier reaches a service: HTTP or HTTPS proxied by path, or
 // raw TCP forwarded by port.
@@ -71,8 +86,10 @@ const (
 
 // Project is a normalized Pier project.
 type Project struct {
-	Version  int
-	Name     string
+	Version int
+	Name    string
+	// Domain is the Cloudflare domain services with provider: cloudflare use.
+	Domain   string
 	Local    Local
 	Services []ResolvedService
 }
@@ -107,14 +124,25 @@ type ResolvedService struct {
 	Throttle Shaping
 	// Capture is how long requests are kept for replay; 0 captures nothing.
 	Capture time.Duration
+	// Provider is tailscale or cloudflare.
+	Provider string
+	// Cloudflare is the public hostname served through the project's
+	// Cloudflare Tunnel, such as web.example.com; empty for Tailscale.
+	Cloudflare string
 
 	// As written, for Validate to explain.
 	throttle      *Throttle
 	capture       string
 	publicProblem string
 	pathSet       bool
+	publicSet     bool
 	listenSet     bool
+	hostname      string
 }
+
+// OnTailscale reports whether Pier serves the service on Tailscale. A
+// service with provider: cloudflare is served by Cloudflare instead.
+func (s ResolvedService) OnTailscale() bool { return s.Provider != ProviderCloudflare }
 
 // Tapped reports whether Pier must see this service's traffic itself: to
 // slow it or to record it.

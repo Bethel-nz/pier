@@ -100,6 +100,11 @@ type JSONService struct {
 	LANURL     string `json:"lanUrl,omitempty"`
 	LocalState string `json:"localState,omitempty"`
 	HTTPSPort  uint16 `json:"httpsPort"`
+	// Cloudflare is the public hostname served through Cloudflare.
+	Cloudflare       string `json:"cloudflare,omitempty"`
+	CloudflareURL    string `json:"cloudflareUrl,omitempty"`
+	CloudflareState  string `json:"cloudflareState,omitempty"`
+	CloudflareDetail string `json:"cloudflareDetail,omitempty"`
 	// PublicSince is when the live Funnel route was made, when known.
 	PublicSince *time.Time `json:"publicSince,omitempty"`
 	// PublicUntil is when a timed public window closes.
@@ -218,6 +223,11 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			LocalState:  service.LocalState,
 			HTTPSPort:   service.HTTPSPort,
 			Drift:       service.Drift,
+
+			Cloudflare:       service.Cloudflare,
+			CloudflareURL:    service.CloudflareURL,
+			CloudflareState:  service.CloudflareState,
+			CloudflareDetail: service.CloudflareDetail,
 		})
 		if !service.PublicSince.IsZero() {
 			since := service.PublicSince
