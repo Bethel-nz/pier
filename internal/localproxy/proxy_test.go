@@ -116,7 +116,7 @@ func TestStoppedServiceGets502(t *testing.T) {
 
 func TestHTTPRedirectsAndServesCA(t *testing.T) {
 	p := newProxy(t, upstream(t).URL)
-	p.SetCA([]byte("-----BEGIN CERTIFICATE-----\n"))
+	p.SetCA(testCA(t))
 
 	rec := httptest.NewRecorder()
 	p.HTTP().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://my-app.local/a?b=1", nil))
@@ -133,8 +133,8 @@ func TestHTTPRedirectsAndServesCA(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	p.HTTP().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://192.168.1.20"+CAPath, nil))
-	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/x-x509-ca-cert" {
-		t.Fatalf("CA download = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "-----BEGIN CERTIFICATE-----") {
+		t.Fatalf("CA download = %d %q", rec.Code, rec.Body.String())
 	}
 }
 

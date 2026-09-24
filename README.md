@@ -109,7 +109,7 @@ Nothing else to install. On `pier up`, Pier:
 
 The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. The Tailscale URL is unchanged.
 
-To trust HTTPS on a phone, open `http://<local-name>/.pier/ca.pem` on it once and install the profile. On iOS, also enable it under Settings → General → About → Certificate Trust Settings.
+To trust HTTPS on another device, open `http://<local-name>/.pier/` on it once (or scan `pier qr --ca`). The page detects the device and gives it a one-tap installer: a profile on iPhone and iPad, a certificate on Android, Windows, and other computers. Trust lasts for every `.local` name Pier serves, so each device does this only once. Compare the fingerprint the page shows with `pier doctor`.
 
 On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(command -v pier)"`. Without it, Pier uses port 8443 and says so. Chrome and Firefox on Linux read their own certificate stores; Pier adds its CA there when NSS's `certutil` is installed.
 

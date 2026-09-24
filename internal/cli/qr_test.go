@@ -24,7 +24,7 @@ func TestQRTargetPicksTheRightURL(t *testing.T) {
 		want    string
 	}{
 		{"named service", []string{"web"}, false, false, "https://demo.local/"},
-		{"CA link for phones", nil, true, false, "http://demo.local/.pier/ca.pem"},
+		{"CA link for phones", nil, true, false, "http://demo.local/.pier/"},
 		{"tailscale URL on request", []string{"worker"}, false, true, "https://box.ts.net:8443/worker"},
 	}
 	for _, tc := range cases {

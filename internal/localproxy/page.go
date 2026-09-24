@@ -11,6 +11,11 @@ func escape(s string) string { return html.EscapeString(s) }
 // writePage renders a small self-contained error page. body is trusted HTML;
 // every dynamic value in it must already be escaped.
 func writePage(w http.ResponseWriter, status int, title, body string) {
+	writeHTML(w, status, strconv.Itoa(status), title, "<p>"+body+"</p>")
+}
+
+// writeHTML renders a Pier page. content is trusted HTML placed after the title.
+func writeHTML(w http.ResponseWriter, status int, label, title, content string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Pier", "1")
@@ -27,6 +32,12 @@ small{color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 h1{font-size:1.4rem;margin:.3rem 0 1rem}
 code{background:var(--line);padding:.1em .35em;border-radius:4px}
 a{color:inherit}
-</style></head><body><main><small>Pier · ` + strconv.Itoa(status) + `</small>
-<h1>` + escape(title) + `</h1><p>` + body + `</p></main></body></html>`))
+.button{display:inline-block;margin:.25rem 0 1rem;padding:.6rem 1rem;border-radius:8px;background:var(--fg);color:var(--bg);text-decoration:none;font-weight:600}
+ol{padding-left:1.3rem}
+li{margin:.3rem 0}
+details{border-top:1px solid var(--line);padding:.6rem 0}
+summary{cursor:pointer;font-weight:600}
+.fp{font:12px/1.5 ui-monospace,monospace;word-break:break-all;color:var(--muted)}
+</style></head><body><main><small>Pier · ` + escape(label) + `</small>
+<h1>` + escape(title) + `</h1>` + content + `</main></body></html>`))
 }

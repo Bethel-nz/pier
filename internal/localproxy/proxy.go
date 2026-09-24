@@ -18,8 +18,6 @@ import (
 const (
 	hopHeader = "X-Pier-Hops"
 	maxHops   = 5
-	// CAPath serves the Pier CA over plain HTTP so phones can install it.
-	CAPath = "/.pier/ca.pem"
 )
 
 // Route sends one .local host to one loopback target.
@@ -42,7 +40,7 @@ type Proxy struct {
 	mu        sync.RWMutex
 	routes    map[string]*route
 	certs     map[string]*tls.Certificate
-	caPEM     []byte
+	ca        *caFiles
 	httpsPort int
 	traffic   *traffic
 }
@@ -81,10 +79,11 @@ func (p *Proxy) SetCertificates(certs map[string]*tls.Certificate) {
 	p.mu.Unlock()
 }
 
-// SetCA sets the CA certificate offered at CAPath.
+// SetCA sets the CA certificate the install page offers.
 func (p *Proxy) SetCA(pem []byte) {
+	ca := newCAFiles(pem)
 	p.mu.Lock()
-	p.caPEM = append([]byte(nil), pem...)
+	p.ca = ca
 	p.mu.Unlock()
 }
 
@@ -126,6 +125,10 @@ func (p *Proxy) route() http.Handler {
 				"It has passed through Pier "+strconv.Itoa(hops)+" times. A dev server is probably proxying back to its own .local name without rewriting the Host header. Set <code>changeOrigin: true</code> in your Vite or webpack proxy config.")
 			return
 		}
+		// Also over HTTPS: browsers that upgrade every link land here, past the warning.
+		if p.serveInstall(w, r) {
+			return
+		}
 		host := normalizeHost(r.Host)
 		p.mu.RLock()
 		found := p.routes[host]
@@ -143,20 +146,11 @@ func (p *Proxy) route() http.Handler {
 	})
 }
 
-// HTTP redirects known hosts to HTTPS and serves the CA for phones.
+// HTTP redirects known hosts to HTTPS and serves the install page for devices
+// that do not trust the Pier CA yet.
 func (p *Proxy) HTTP() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == CAPath {
-			p.mu.RLock()
-			ca := p.caPEM
-			p.mu.RUnlock()
-			if len(ca) == 0 {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("Content-Type", "application/x-x509-ca-cert")
-			w.Header().Set("Content-Disposition", `attachment; filename="pier-local-ca.pem"`)
-			_, _ = w.Write(ca)
+		if p.serveInstall(w, r) {
 			return
 		}
 		host := normalizeHost(r.Host)

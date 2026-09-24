@@ -13,13 +13,14 @@ import (
 
 // JSONLocal is .local serving state for up, status, and doctor.
 type JSONLocal struct {
-	Running   bool     `json:"running"`
-	HTTPSPort int      `json:"httpsPort,omitempty"`
-	CAPath    string   `json:"caPath,omitempty"`
-	CATrusted bool     `json:"caTrusted"`
-	CertDir   string   `json:"certDir,omitempty"`
-	APIURL    string   `json:"apiUrl,omitempty"`
-	Warnings  []string `json:"warnings,omitempty"`
+	Running       bool     `json:"running"`
+	HTTPSPort     int      `json:"httpsPort,omitempty"`
+	CAPath        string   `json:"caPath,omitempty"`
+	CAFingerprint string   `json:"caFingerprint,omitempty"`
+	CATrusted     bool     `json:"caTrusted"`
+	CertDir       string   `json:"certDir,omitempty"`
+	APIURL        string   `json:"apiUrl,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 func jsonLocal(services []app.ServiceInfo, report localname.Report) *JSONLocal {
@@ -27,13 +28,14 @@ func jsonLocal(services []app.ServiceInfo, report localname.Report) *JSONLocal {
 		return nil
 	}
 	return &JSONLocal{
-		Running:   report.Running,
-		HTTPSPort: report.HTTPSPort,
-		CAPath:    report.CAPath,
-		CATrusted: report.CATrusted,
-		CertDir:   report.CertDir,
-		APIURL:    report.APIURL,
-		Warnings:  localWarnings(report),
+		Running:       report.Running,
+		HTTPSPort:     report.HTTPSPort,
+		CAPath:        report.CAPath,
+		CAFingerprint: report.CAFingerprint,
+		CATrusted:     report.CATrusted,
+		CertDir:       report.CertDir,
+		APIURL:        report.APIURL,
+		Warnings:      localWarnings(report),
 	}
 }
 
@@ -93,7 +95,7 @@ func writeLocalSetup(w io.Writer, services []app.ServiceInfo, report localname.R
 	}
 	if report.CACreated || report.TrustedNow {
 		if phone := firstLive(services); phone != "" {
-			fmt.Fprintf(w, "phones       open http://%s%s once on each device to install the CA\n", phone, localproxy.CAPath)
+			fmt.Fprintf(w, "phones       open http://%s%s once on each other device to trust Pier\n", phone, localproxy.InstallPath)
 		}
 	}
 	for _, warning := range localWarnings(report) {
@@ -122,6 +124,7 @@ func writeLocalDoctor(w io.Writer, domains []string, report localname.Report) {
 	writeDoctorFlag(w, "autostart", report.Autostart)
 	if report.CAPath != "" {
 		fmt.Fprintf(w, "  ca: %s\n", report.CAPath)
+		fmt.Fprintf(w, "  caFingerprint: %s\n", report.CAFingerprint)
 	}
 	if report.Running && report.HTTPSPort != 0 {
 		fmt.Fprintf(w, "  httpsPort: %d\n", report.HTTPSPort)

@@ -87,7 +87,7 @@ func qrTarget(services []app.ServiceInfo, args []string, ca, tailnet bool) (stri
 		}
 		return "", fmt.Errorf("Pier is not serving %s right now (%s); run pier up", chosen.Domain, state)
 	case ca:
-		return "http://" + chosen.Domain + localproxy.CAPath, nil
+		return "http://" + chosen.Domain + localproxy.InstallPath, nil
 	default:
 		return chosen.LocalURL, nil
 	}

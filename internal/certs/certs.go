@@ -333,6 +333,17 @@ func Fingerprint(cert *x509.Certificate) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// DisplayFingerprint is the SHA-256 fingerprint as people compare it:
+// uppercase hex pairs joined by colons, the way phones and Keychain show it.
+func DisplayFingerprint(cert *x509.Certificate) string {
+	sum := sha256.Sum256(cert.Raw)
+	pairs := make([]string, len(sum))
+	for i, b := range sum {
+		pairs[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(pairs, ":")
+}
+
 // ReadCertPEM parses the first certificate in a PEM file.
 func ReadCertPEM(path string) (*x509.Certificate, error) {
 	contents, err := os.ReadFile(path)

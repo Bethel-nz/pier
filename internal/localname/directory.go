@@ -21,8 +21,10 @@ type Report struct {
 	HTTPSPort int
 	Names     map[string]NameStatus
 	CAPath    string
-	CATrusted bool
-	CACreated bool
+	// CAFingerprint is the SHA-256 other devices compare before trusting the CA.
+	CAFingerprint string
+	CATrusted     bool
+	CACreated     bool
 	// TrustedNow is set when this sync added the CA to the trust store.
 	TrustedNow bool
 	TrustError string
@@ -126,6 +128,7 @@ func (d *Directory) Status() Report {
 	report := Report{Names: map[string]NameStatus{}}
 	if ca, err := certs.LoadCA(d.caDir, d.now()); err == nil {
 		report.CAPath = ca.CertPath()
+		report.CAFingerprint = certs.DisplayFingerprint(ca.Cert)
 		report.CATrusted = trust.IsTrusted(ca.Cert, ca.CertPath())
 		report.Warnings = append(report.Warnings, browserStoreWarnings()...)
 	}
@@ -178,6 +181,7 @@ func (d *Directory) prepare(root string, names []string, settings state.LocalSet
 		return fmt.Errorf("Pier could not create its local CA: %w", err)
 	}
 	report.CAPath = ca.CertPath()
+	report.CAFingerprint = certs.DisplayFingerprint(ca.Cert)
 	report.CACreated = created
 	if err := ignorePierDir(root); err != nil {
 		return err
