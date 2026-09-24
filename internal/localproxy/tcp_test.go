@@ -32,14 +32,26 @@ func echo(t *testing.T) (string, int) {
 	return l.Addr().String(), l.Addr().(*net.TCPAddr).Port
 }
 
+// secondLoopback stands 127.0.0.2 in for a LAN address, skipping the test on
+// systems such as macOS where only 127.0.0.1 is configured.
+func secondLoopback(t *testing.T) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.2:0")
+	if err != nil {
+		t.Skipf("this system cannot bind 127.0.0.2: %v", err)
+	}
+	l.Close()
+	useAddresses(t, "127.0.0.1", "127.0.0.2")
+}
+
 func TestTCPForwardRelaysFromLANAddresses(t *testing.T) {
 	target, _ := echo(t)
-	useAddresses(t, "127.0.0.1", "127.0.0.2")
+	secondLoopback(t)
 	port := freePort(t)
 	f := ForwardTCP(port, target)
 	defer f.Close()
 	if got := f.Addresses(); !reflect.DeepEqual(got, []string{"127.0.0.2"}) {
-		t.Skipf("this system cannot bind 127.0.0.2 (bound %v)", got)
+		t.Fatalf("bound %v, want [127.0.0.2]", got)
 	}
 
 	conn, err := net.Dial("tcp", "127.0.0.2:"+strconv.Itoa(port))
@@ -62,7 +74,7 @@ func TestTCPForwardLeavesATargetOnTheLANAlone(t *testing.T) {
 	}
 	defer l.Close()
 	port := l.Addr().(*net.TCPAddr).Port
-	useAddresses(t, "127.0.0.1", "127.0.0.2")
+	secondLoopback(t)
 	go func() {
 		for {
 			conn, err := l.Accept()
