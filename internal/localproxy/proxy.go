@@ -173,8 +173,16 @@ func (p *Proxy) reverseProxy(rt *route) *httputil.ReverseProxy {
 		// certificate is for localhost, not for the .local name.
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}
+	var roundTripper http.RoundTripper = transport
+	if rt.target.Scheme == "http" {
+		// gRPC needs HTTP/2 end to end; plain-HTTP gRPC servers speak it unencrypted (h2c).
+		grpc := http.DefaultTransport.(*http.Transport).Clone()
+		grpc.Protocols = new(http.Protocols)
+		grpc.Protocols.SetUnencryptedHTTP2(true)
+		roundTripper = splitGRPC{grpc: grpc, other: transport}
+	}
 	return &httputil.ReverseProxy{
-		Transport: transport,
+		Transport: roundTripper,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			hops, _ := strconv.Atoi(pr.In.Header.Get(hopHeader))
 			pr.SetURL(rt.target)
@@ -190,6 +198,20 @@ func (p *Proxy) reverseProxy(rt *route) *httputil.ReverseProxy {
 				"Pier routes <b>"+escape(rt.Host)+"</b> to <code>"+escape(rt.target.Host)+"</code>, but nothing answered there. Start the service, then reload.")
 		},
 	}
+}
+
+// splitGRPC sends gRPC over h2c and everything else over HTTP/1.1, which is
+// all most dev servers speak.
+type splitGRPC struct {
+	grpc, other http.RoundTripper
+}
+
+func (s splitGRPC) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.ProtoMajor == 2 && strings.HasPrefix(req.Header.Get("Content-Type"), "application/grpc") &&
+		!strings.HasPrefix(req.Header.Get("Content-Type"), "application/grpc-web") {
+		return s.grpc.RoundTrip(req)
+	}
+	return s.other.RoundTrip(req)
 }
 
 // translateOrigin makes a same-origin read look same-origin to the upstream.

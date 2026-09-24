@@ -248,3 +248,44 @@ func TestOriginIsTranslatedOnlyForSameOriginReads(t *testing.T) {
 		}
 	}
 }
+
+func TestGRPCReachesAnH2CUpstreamWithTrailers(t *testing.T) {
+	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Trailer", "Grpc-Status")
+		w.Header().Set("X-Proto", r.Proto)
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Grpc-Status", "0")
+	}))
+	up.Config.Protocols = new(http.Protocols)
+	up.Config.Protocols.SetHTTP1(true)
+	up.Config.Protocols.SetUnencryptedHTTP2(true)
+	up.Start()
+	defer up.Close()
+
+	p := newProxy(t, up.URL)
+	front := httptest.NewUnstartedServer(p.HTTPS())
+	front.EnableHTTP2 = true
+	front.StartTLS()
+	defer front.Close()
+
+	req, err := http.NewRequest(http.MethodPost, front.URL+"/grpc.health.v1.Health/Check", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "my-app.local"
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Header.Set("TE", "trailers")
+	resp, err := front.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if got := resp.Header.Get("X-Proto"); got != "HTTP/2.0" {
+		t.Fatalf("upstream saw %s, want HTTP/2.0 (h2c) for gRPC", got)
+	}
+	if got := resp.Trailer.Get("Grpc-Status"); got != "0" {
+		t.Fatalf("grpc-status trailer = %q, want 0", got)
+	}
+}
