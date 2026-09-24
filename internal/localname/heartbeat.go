@@ -51,6 +51,8 @@ type Heartbeat struct {
 	MDNSError string       `json:"mdnsError,omitempty"`
 	Names     []NameStatus `json:"names"`
 	Taps      []TapStatus  `json:"taps,omitempty"`
+	// Tunnels are the Cloudflare Tunnels the daemon runs cloudflared for.
+	Tunnels []TunnelStatus `json:"tunnels,omitempty"`
 	// LANAddress is this machine's address on its default network, for LAN URLs.
 	LANAddress string   `json:"lanAddress,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
