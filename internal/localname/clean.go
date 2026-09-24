@@ -46,6 +46,7 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 			report.StoppedDaemon = true
 		}
 	}
+	sweepPublishers()
 
 	saved, err := d.projects.List()
 	if err != nil {
