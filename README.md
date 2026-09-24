@@ -135,7 +135,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
 | `pier up` | Validate, check Tailscale, plan, apply, verify, persist ownership, print URLs |
 | `pier down` | Remove only routes owned by this Pier project |
-| `pier status` | Show services, health, public access, and URLs |
+| `pier status [--all]` | Show what Tailscale actually serves for each service, how long anything has been PUBLIC, and what differs from `pier.yaml`; `--all` lists every route on this machine |
 | `pier doctor` | Diagnose config, Tailscale, and local targets |
 | `pier share <service>` | Runtime-only `public: true` override |
 | `pier unshare <service>` | Remove the override and restore configured access |

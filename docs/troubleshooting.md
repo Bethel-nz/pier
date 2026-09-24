@@ -25,9 +25,17 @@ If Tailscale already has a different handler on the same HTTPS listener and path
 - Local application processes
 - `pier.yaml`
 
+## Public routes
+
+Anything public is reachable by anyone on the internet, so Pier keeps it in view:
+
+- `pier status` reads the routes Tailscale serves right now, not saved state. A service shows a URL only when its route is live, and its PUBLIC column says how long it has been public (`PUBLIC 3h`). Lines starting `drift` say where Tailscale differs from `pier.yaml`, such as an older public route an earlier run left behind, each with the command that fixes it.
+- `pier status --all` lists every Serve and Funnel route on this machine, public ones first, with the Pier project that owns each one, or `-` for none.
+- `pier up`, `pier status`, and `pier doctor` warn about public routes no Pier project owns, and about public routes that have been up for more than 24 hours.
+
 ## Doctor
 
-`pier doctor` reports whether Tailscale is installed, the daemon is running, the client is signed in, MagicDNS/HTTPS/Funnel look available, and local targets answer on TCP. Failures are diagnostic data. `--verbose` adds raw Tailscale stderr.
+`pier doctor` reports whether Tailscale is installed, the daemon is running, the client is signed in, MagicDNS/HTTPS/Funnel look available, and local targets answer on TCP. Failures are diagnostic data. `--verbose` adds raw Tailscale stderr. It also warns about public routes (above), and when the `pier` on your PATH is a different binary from the one running, the usual reason a `go install`ed fix seems to change nothing.
 
 Common blocks:
 

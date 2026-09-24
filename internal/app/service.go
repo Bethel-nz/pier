@@ -66,6 +66,8 @@ type UpResult struct {
 	Local localname.Report
 	// TailscaleSkipped says why Tailscale was left alone. Local names were still served.
 	TailscaleSkipped string
+	// Warnings are public routes on this machine that this project does not manage.
+	Warnings []string
 }
 
 // DownRequest removes routes owned by the current project.
@@ -94,6 +96,10 @@ type StatusResult struct {
 	DNSName  string
 	Services []ServiceInfo
 	Local    localname.Report
+	// TailscaleSkipped says why no Tailscale URLs are shown.
+	TailscaleSkipped string
+	// Warnings are public routes worth a second look, on this whole machine.
+	Warnings []string
 }
 
 // DoctorRequest diagnoses configuration, Tailscale, and local targets.
@@ -111,6 +117,8 @@ type DoctorResult struct {
 	Health       []health.Result
 	// Local is nil when no service declares a domain.
 	Local *localname.Report
+	// Warnings are public routes worth a second look, and install problems.
+	Warnings []string
 }
 
 // ShareRequest applies a runtime public-access override.
@@ -167,6 +175,12 @@ type ServiceInfo struct {
 	// LocalState is live, probing, conflict, no-certificate, mdns-unavailable, or down.
 	LocalState string
 	Health     health.Result
+	// PublicSince is when the service's live Funnel route was made; zero if
+	// not public or unknown.
+	PublicSince time.Time
+	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
+	// pier status fills it; other commands just made the two agree.
+	Drift []string
 }
 
 // InvalidConfigError is aggregated configuration validation failure.
@@ -441,21 +455,31 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 	if err != nil {
 		return StatusResult{Project: loaded.project}, fmt.Errorf("Pier could not load project state: %w", err)
 	}
-	dns := s.lookupDNS(ctx, st.DNSName)
 	services := effectiveServices(loaded.cfg, st.Overrides)
 	results := s.checkTargets(ctx, services)
-	infos := serviceInfos(services, dns, indexHealth(results), st.Paused)
-	var local localname.Report
-	if s.locals != nil && hasDomains(loaded.cfg) {
-		local = s.locals.Status()
-		withLocal(infos, local)
+	result := StatusResult{Project: loaded.project}
+	// URLs come from what Tailscale serves now, never from what was saved.
+	if _, err := s.ts.Check(ctx); err != nil {
+		result.TailscaleSkipped = (&PrerequisiteError{Err: err}).Error()
+		result.Services = serviceInfos(services, "", indexHealth(results), st.Paused)
+		for i := range result.Services {
+			result.Services[i].Public = false
+		}
+	} else {
+		actual, err := s.ts.Routes(ctx)
+		if err != nil {
+			return result, fmt.Errorf("Pier could not read Tailscale routes: %w", err)
+		}
+		result.DNSName = s.lookupDNS(ctx, "")
+		result.Services = serviceInfos(services, result.DNSName, indexHealth(results), st.Paused)
+		withLiveRoutes(result.Services, services, actual, st.Routes, result.DNSName, st.Paused)
+		result.Warnings = publicWarnings(actual, s.owners(), result.DNSName, s.clock(), nil)
 	}
-	return StatusResult{
-		Project:  loaded.project,
-		DNSName:  dns,
-		Services: infos,
-		Local:    local,
-	}, nil
+	if s.locals != nil && hasDomains(loaded.cfg) {
+		result.Local = s.locals.Status()
+		withLocal(result.Services, result.Local)
+	}
+	return result, nil
 }
 
 // Doctor diagnoses config, Tailscale, and local targets as structured data.
@@ -471,6 +495,14 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 	caps, tsErr := s.ts.Check(ctx)
 	result.Capabilities = caps
 	result.TailscaleErr = tsErr
+	if tsErr == nil {
+		if actual, err := s.ts.Routes(ctx); err == nil {
+			result.Warnings = publicWarnings(actual, s.owners(), s.lookupDNS(ctx, ""), s.clock(), nil)
+		}
+	}
+	if mismatch := pathMismatch(); mismatch != "" {
+		result.Warnings = append(result.Warnings, mismatch)
+	}
 	if s.locals != nil && hasDomains(loaded.cfg) {
 		local := s.locals.Status()
 		result.Local = &local
@@ -684,10 +716,27 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 			return result, err
 		}
 	}
+	result.Warnings = s.foreignPublic(&sess)
 	err = s.applyAndPersist(ctx, &sess, overrides, paused, true)
 	result.Local = sess.local
 	withLocal(result.Services, sess.local)
 	return result, err
+}
+
+// foreignPublic warns about public routes on this machine that this project
+// neither owns nor is about to create: the ones pier up would silently leave.
+func (s *Service) foreignPublic(sess *session) []string {
+	if sess.tailscaleSkipped != "" {
+		return nil
+	}
+	mine := map[string]bool{}
+	for _, route := range sess.state.Routes {
+		mine[reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}.Key()] = true
+	}
+	for _, op := range sess.plan.Operations {
+		mine[op.After.Key()] = true
+	}
+	return publicWarnings(sess.actual, s.owners(), sess.dns, s.clock(), mine)
 }
 
 type session struct {
@@ -860,16 +909,12 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	st.DNSName = sess.dns
 	st.ConfigHash = configHash(sess.project.ConfigPath)
 	if result.Verified != nil {
-		st.Routes = nextOwned(st.Routes, result.Completed)
+		st.Routes = nextOwned(st.Routes, result.Completed, s.clock())
 		st.Overrides = overrides
 	}
 	st.Paused = compactBoolMap(paused)
 	st.Domains = domains
-	if s.now != nil {
-		st.UpdatedAt = s.now()
-	} else {
-		st.UpdatedAt = time.Now()
-	}
+	st.UpdatedAt = s.clock()
 	if err := s.store.Save(st); err != nil {
 		return fmt.Errorf("Pier could not save project state: %w", err)
 	}
@@ -983,7 +1028,7 @@ func ownedRoutes(proj project.Context, st state.ProjectState) []reconcile.Route 
 	return routes
 }
 
-func nextOwned(prev []state.Route, completed []reconcile.Operation) []state.Route {
+func nextOwned(prev []state.Route, completed []reconcile.Operation, now time.Time) []state.Route {
 	byKey := make(map[string]state.Route, len(prev)+len(completed))
 	for _, route := range prev {
 		byKey[reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}.Key()] = route
@@ -997,6 +1042,8 @@ func nextOwned(prev []state.Route, completed []reconcile.Operation) []state.Rout
 				Service:   op.After.Service,
 				HTTPSPort: op.After.HTTPSPort,
 				Path:      op.After.Path,
+				Public:    op.After.Public,
+				Since:     now,
 			}
 		}
 	}

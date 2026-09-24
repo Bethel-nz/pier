@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/config"
@@ -98,6 +99,28 @@ type JSONService struct {
 	LocalURL   string `json:"localUrl,omitempty"`
 	LocalState string `json:"localState,omitempty"`
 	HTTPSPort  uint16 `json:"httpsPort"`
+	// PublicSince is when the live Funnel route was made, when known.
+	PublicSince *time.Time `json:"publicSince,omitempty"`
+	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
+	Drift []string `json:"drift,omitempty"`
+}
+
+// JSONMachineRoute is one Tailscale route on this machine, for status --all.
+type JSONMachineRoute struct {
+	URL     string     `json:"url"`
+	Target  string     `json:"target"`
+	Public  bool       `json:"public"`
+	Project string     `json:"project,omitempty"`
+	Service string     `json:"service,omitempty"`
+	Since   *time.Time `json:"since,omitempty"`
+}
+
+func jsonMachineRoute(route app.MachineRoute) JSONMachineRoute {
+	out := JSONMachineRoute{URL: route.URL, Target: route.Route.Target, Public: route.Route.Public, Project: route.Project, Service: route.Service}
+	if !route.Since.IsZero() {
+		out.Since = &route.Since
+	}
+	return out
 }
 
 // JSONDoctor is the doctor command payload.
@@ -185,7 +208,12 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			LocalURL:   service.LocalURL,
 			LocalState: service.LocalState,
 			HTTPSPort:  service.HTTPSPort,
+			Drift:      service.Drift,
 		})
+		if !service.PublicSince.IsZero() {
+			since := service.PublicSince
+			out[len(out)-1].PublicSince = &since
+		}
 	}
 	return out
 }

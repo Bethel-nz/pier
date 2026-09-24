@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/health"
@@ -106,7 +107,7 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 func (o Options) Up(result app.UpResult, err error) error {
 	if o.JSON {
 		payload := JSONStatus{Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
-		warnings := warningsFromPlan(result.Plan)
+		warnings := append(warningsFromPlan(result.Plan), result.Warnings...)
 		if result.TailscaleSkipped != "" {
 			warnings = append(warnings, "tailscale skipped: "+result.TailscaleSkipped)
 		}
@@ -131,6 +132,7 @@ func (o Options) Up(result app.UpResult, err error) error {
 	writeServiceTable(o.Out, result.Services)
 	writeLocalSetup(o.Out, result.Services, result.Local)
 	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+	writeWarnings(o.Out, result.Warnings)
 	return nil
 }
 
@@ -164,7 +166,11 @@ func (o Options) Down(result app.DownResult, err error) error {
 func (o Options) Status(result app.StatusResult, err error) error {
 	if o.JSON {
 		payload := JSONStatus{DNSName: result.DNSName, Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
-		if writeErr := writeJSON(o.Out, "status", result.Project, payload, nil, jsonErrs(err)); writeErr != nil {
+		warnings := append([]string(nil), result.Warnings...)
+		if result.TailscaleSkipped != "" {
+			warnings = append(warnings, "tailscale skipped: "+result.TailscaleSkipped)
+		}
+		if writeErr := writeJSON(o.Out, "status", result.Project, payload, warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
@@ -173,13 +179,88 @@ func (o Options) Status(result app.StatusResult, err error) error {
 		return o.Error(err)
 	}
 	writeServiceTable(o.Out, result.Services)
+	writeDrift(o.Out, result.Services)
+	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+	writeWarnings(o.Out, result.Warnings)
 	return nil
+}
+
+// Machine renders every Tailscale route on this machine, public ones first.
+func (o Options) Machine(result app.MachineResult, err error) error {
+	if o.JSON {
+		items := make([]JSONMachineRoute, 0, len(result.Routes))
+		for _, route := range result.Routes {
+			items = append(items, jsonMachineRoute(route))
+		}
+		if writeErr := writeJSON(o.Out, "status", project.Context{}, map[string]any{"dnsName": result.DNSName, "routes": items}, nil, jsonErrs(err)); writeErr != nil {
+			return writeErr
+		}
+		return err
+	}
+	if err != nil {
+		return o.Error(err)
+	}
+	if len(result.Routes) == 0 {
+		fmt.Fprintln(o.Out, "Tailscale serves nothing on this machine")
+		return nil
+	}
+	tab := tabwriter.NewWriter(o.Out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tab, "ACCESS\tURL\tTARGET\tOWNER")
+	public := 0
+	for _, route := range result.Routes {
+		access := "tailnet"
+		if route.Route.Public {
+			access = publicLabel(route.Since)
+			public++
+		}
+		owner := "-"
+		if route.Project != "" {
+			owner = route.Service + " (" + route.Project + ")"
+		}
+		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", access, orDash(route.URL), route.Route.Target, owner)
+	}
+	_ = tab.Flush()
+	if public > 0 {
+		fmt.Fprintf(o.Out, "%d route(s) are PUBLIC on the internet\n", public)
+	}
+	return nil
+}
+
+// publicColumn is loud for a service anyone on the internet can reach.
+func publicColumn(service app.ServiceInfo) string {
+	if !service.Public {
+		return "no"
+	}
+	return publicLabel(service.PublicSince)
+}
+
+// publicLabel is PUBLIC, with how long when Pier knows it.
+func publicLabel(since time.Time) string {
+	if since.IsZero() {
+		return "PUBLIC"
+	}
+	return "PUBLIC " + app.Age(time.Since(since))
+}
+
+// writeDrift prints where Tailscale differs from pier.yaml, with the fix.
+func writeDrift(w io.Writer, services []app.ServiceInfo) {
+	for _, service := range services {
+		for _, drift := range service.Drift {
+			fmt.Fprintf(w, "drift        %s: %s\n", service.Name, drift)
+		}
+	}
+}
+
+func writeWarnings(w io.Writer, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "warning      %s\n", warning)
+	}
 }
 
 // Doctor renders diagnostics.
 func (o Options) Doctor(result app.DoctorResult, err error) error {
 	if o.JSON {
-		if writeErr := writeJSON(o.Out, "doctor", result.Project, jsonDoctor(result), nil, jsonErrs(err)); writeErr != nil {
+		if writeErr := writeJSON(o.Out, "doctor", result.Project, jsonDoctor(result), result.Warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
@@ -216,6 +297,12 @@ func (o Options) Doctor(result app.DoctorResult, err error) error {
 	}
 	if result.Local != nil {
 		writeLocalDoctor(o.Out, doctorDomains(result), *result.Local)
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Fprintln(o.Out, "Warnings")
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(o.Out, "  %s\n", warning)
+		}
 	}
 	return err
 }
@@ -297,7 +384,7 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 			service.Name,
 			displayTarget(service),
 			service.Path,
-			strconv.FormatBool(service.Public),
+			publicColumn(service),
 			strconv.FormatBool(service.Paused),
 			healthStatus,
 			orDash(service.URL),

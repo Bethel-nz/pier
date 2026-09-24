@@ -28,6 +28,7 @@ type App interface {
 	AddService(ctx context.Context, req app.AddServiceRequest) (app.AddServiceResult, error)
 	Open(ctx context.Context, req app.OpenRequest) (app.OpenResult, error)
 	Copy(ctx context.Context, req app.CopyRequest) (app.CopyResult, error)
+	Machine(ctx context.Context) (app.MachineResult, error)
 }
 
 type runtime struct {

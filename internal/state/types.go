@@ -31,6 +31,10 @@ type Route struct {
 	Service   string `json:"service"`
 	HTTPSPort uint16 `json:"httpsPort"`
 	Path      string `json:"path"`
+	// Public is set for a Funnel route: reachable from the internet.
+	Public bool `json:"public,omitempty"`
+	// Since is when Pier created the route or last changed it.
+	Since time.Time `json:"since,omitempty"`
 }
 
 // LocalDomain is a .local name Pier serves for one service.

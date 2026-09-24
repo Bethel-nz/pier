@@ -160,14 +160,21 @@ func newDownCommand(rt *runtime) *cobra.Command {
 }
 
 func newStatusCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show configured services, health, public access, and URLs",
+		Short: "Show what Tailscale serves for this project, and what differs from pier.yaml",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if all {
+				result, err := rt.app.Machine(cmd.Context())
+				return rt.renderer("status").Machine(result, err)
+			}
 			result, err := rt.app.Status(cmd.Context(), app.StatusRequest{Start: rt.start()})
 			return rt.renderer("status").Status(result, err)
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "list every Tailscale route on this machine, public ones first, whichever project made it")
+	return cmd
 }
 
 func newDoctorCommand(rt *runtime) *cobra.Command {
