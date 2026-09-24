@@ -342,6 +342,14 @@ func (o Options) Add(result app.AddServiceResult, err error) error {
 	return o.serviceAction("service add", result.Project, result.Service, reconcile.Plan{}, err)
 }
 
+// JSONData writes data in the standard --json envelope and returns err.
+func (o Options) JSONData(command string, proj project.Context, data any, err error) error {
+	if writeErr := writeJSON(o.Out, command, proj, data, nil, jsonErrs(err)); writeErr != nil {
+		return writeErr
+	}
+	return err
+}
+
 // URL renders a resolved service URL.
 func (o Options) URL(command string, proj project.Context, url string, err error) error {
 	if o.JSON {

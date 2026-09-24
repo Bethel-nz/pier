@@ -2,6 +2,7 @@ package localname
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -60,12 +61,13 @@ type Directory struct {
 	caDir       string
 	now         func() time.Time
 	wait        time.Duration
+	untrust     func(*x509.Certificate, string) error
 }
 
 // NewDirectory manages local names for projects saved in store.
 func NewDirectory(store *state.Store) *Directory {
 	caDir, _ := certs.DefaultCADir()
-	return &Directory{projects: store, caDir: caDir, now: time.Now, wait: 6 * time.Second}
+	return &Directory{projects: store, caDir: caDir, now: time.Now, wait: 6 * time.Second, untrust: trust.Remove}
 }
 
 // Sync is called after pier up, pause, resume, or down saved state. names are

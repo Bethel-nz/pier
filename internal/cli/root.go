@@ -116,6 +116,7 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		newTUICommand(rt),
 		newTrustCommand(rt),
 		newQRCommand(rt),
+		newCleanCommand(rt),
 		newLocaldCommand(),
 	)
 	if local != nil {

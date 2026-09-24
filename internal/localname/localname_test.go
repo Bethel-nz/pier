@@ -1,11 +1,15 @@
 package localname
 
 import (
+	"context"
+	"crypto/x509"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/Bethel-nz/pier/internal/certs"
 	"github.com/Bethel-nz/pier/internal/state"
 )
 
@@ -140,3 +144,64 @@ func readFileString(path string) (string, error) {
 func writeFileString(path, contents string) error { return os.WriteFile(path, []byte(contents), 0o644) }
 
 func mkdir(path string) error { return os.MkdirAll(path, 0o755) }
+
+func TestCleanRemovesTheLocalFootprintAndKeepsGoing(t *testing.T) {
+	useConfigDir(t)
+	store := state.New(filepath.Join(t.TempDir(), "projects"))
+	d := NewDirectory(store)
+	d.caDir = filepath.Join(t.TempDir(), "ca")
+	var untrusted string
+	d.untrust = func(_ *x509.Certificate, path string) error { untrusted = path; return nil }
+
+	ca, _, err := certs.LoadOrCreateCA(d.caDir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := ca.EnsureLeaf(certs.LeafDir(root), []string{"app.local"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(state.ProjectState{ProjectID: "p1", Name: "demo", Path: root,
+		Domains: []state.LocalDomain{{Service: "web", Name: "app.local", Target: "http://127.0.0.1:3000"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"pierd.log", "locald.pid"} {
+		path, _ := runtimePath(name)
+		_ = os.MkdirAll(filepath.Dir(path), 0o700)
+		_ = os.WriteFile(path, []byte("x"), 0o600)
+	}
+
+	report := d.Clean(context.Background())
+	if len(report.Errors) != 0 {
+		t.Fatalf("errors = %v", report.Errors)
+	}
+	if untrusted != filepath.Join(d.caDir, "ca.pem") || report.RemovedCA != d.caDir || exists(d.caDir) {
+		t.Fatalf("CA not untrusted and removed: %+v", report)
+	}
+	if exists(certs.LeafDir(root)) || len(report.RemovedCerts) != 1 {
+		t.Fatalf("project certificate not removed: %+v", report)
+	}
+	saved, _ := store.Load("p1")
+	if len(saved.Domains) != 0 || len(report.ClearedNames) != 1 {
+		t.Fatalf("local names not forgotten: %+v", saved.Domains)
+	}
+	for _, name := range []string{"pierd.log", "locald.pid"} {
+		if path, _ := runtimePath(name); exists(path) {
+			t.Fatalf("%s survived clean", name)
+		}
+	}
+}
+
+func TestCleanKeepsTheCAWhenTheTrustStoreRefuses(t *testing.T) {
+	useConfigDir(t)
+	d := NewDirectory(state.New(filepath.Join(t.TempDir(), "projects")))
+	d.caDir = filepath.Join(t.TempDir(), "ca")
+	d.untrust = func(*x509.Certificate, string) error { return errors.New("sudo: a password is required") }
+	if _, _, err := certs.LoadOrCreateCA(d.caDir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	report := d.Clean(context.Background())
+	if len(report.Errors) != 1 || !exists(filepath.Join(d.caDir, "ca.pem")) {
+		t.Fatalf("report = %+v; the CA must stay so a retry removes the same certificate", report)
+	}
+}
