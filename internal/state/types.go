@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"strconv"
 	"time"
 )
 
@@ -24,8 +25,36 @@ type ProjectState struct {
 	Local      LocalSettings   `json:"local"`
 	Overrides  map[string]bool `json:"overrides,omitempty"`
 	Paused     map[string]bool `json:"paused,omitempty"`
+	Taps       []Tap           `json:"taps,omitempty"`
 	UpdatedAt  time.Time       `json:"updatedAt"`
 }
+
+// Tap is a loopback port where the daemon takes a service's traffic before
+// the service does, to throttle or capture it. Tailscale routes point at the
+// tap; the service's .local name uses the same throttle and capture.
+type Tap struct {
+	Service string `json:"service"`
+	// Target is the service's real loopback URL.
+	Target string `json:"target"`
+	Port   int    `json:"port"`
+	// Throttle is nil at full speed.
+	Throttle *Throttle `json:"throttle,omitempty"`
+	// CaptureSeconds is how long captured requests are kept; 0 captures nothing.
+	CaptureSeconds int64 `json:"captureSeconds,omitempty"`
+}
+
+// Throttle is a saved throttle: latency, and bytes per second each way (0 is unlimited).
+type Throttle struct {
+	LatencyMS int64 `json:"latencyMs,omitempty"`
+	Down      int64 `json:"down,omitempty"`
+	Up        int64 `json:"up,omitempty"`
+}
+
+// Address is where the tap listens.
+func (t Tap) Address() string { return "127.0.0.1:" + strconv.Itoa(t.Port) }
+
+// URL is what Tailscale routes point at in place of the service.
+func (t Tap) URL() string { return "http://" + t.Address() }
 
 // Route identifies a Tailscale route owned by a Pier project.
 type Route struct {

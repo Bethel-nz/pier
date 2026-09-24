@@ -46,6 +46,8 @@ func Run(ctx context.Context, projects *state.Store) error {
 		projects: projects,
 		proxy:    localproxy.New(),
 		certs:    map[string]loadedCert{},
+		taps:     map[tapKey]*tapServer{},
+		captures: map[string]*projectCapture{},
 		beat:     Heartbeat{PID: os.Getpid(), Build: buildID(), StartedAt: time.Now()},
 	}
 
@@ -58,6 +60,7 @@ func Run(ctx context.Context, projects *state.Store) error {
 	}
 	defer removeHeartbeat(d.beat.PID)
 	defer d.closeServers()
+	defer d.closeTaps() // first: captured requests are written before the heartbeat goes
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -109,6 +112,8 @@ type daemon struct {
 	servers   []*http.Server
 	listeners []*localproxy.Listeners
 	certs     map[string]loadedCert
+	taps      map[tapKey]*tapServer
+	captures  map[string]*projectCapture // by project ID
 	caPEM     []byte
 	startup   []string // warnings found once at startup, such as a port fallback
 	beat      Heartbeat
@@ -198,6 +203,13 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Error = ""
 	routes, conflicts := Routes(saved)
 	d.refreshCA()
+	tapped, taps, tapWarnings := d.syncTaps(saved, now)
+	warnings = append(warnings, tapWarnings...)
+	for _, tap := range taps {
+		if tap.Error != "" {
+			warnings = append(warnings, tap.Service+": "+tap.Error)
+		}
+	}
 
 	proxied := make([]localproxy.Route, 0, len(routes))
 	served := map[string]*tls.Certificate{}
@@ -213,8 +225,11 @@ func (d *daemon) reconcile(now time.Time) bool {
 			continue
 		}
 		served[route.Name] = cert
+		// A tapped service's .local name is throttled and captured like its tap.
+		tap := tapped[tapKey{route.ProjectID, route.Service}]
 		proxied = append(proxied, localproxy.Route{
 			Host: route.Name, Target: route.Target, Service: route.Service, ThisMachineOnly: route.ThisMachineOnly,
+			Shaping: tap.Shaping, Capture: tap.Capture,
 		})
 		names = append(names, route.Name)
 		statuses = append(statuses, status)
@@ -259,10 +274,11 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 
 	d.beat.Names = statuses
+	d.beat.Taps = taps
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0
+	return len(routes) > 0 || len(taps) > 0
 }
 
 // certificate loads a project's leaf, reloading it when the file changes.

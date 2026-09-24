@@ -102,7 +102,7 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string, setti
 	}
 	beat, beatErr := readHeartbeat()
 	running := beatErr == nil && beat.Fresh(d.now())
-	if len(routes) == 0 {
+	if len(routes) == 0 && !anyTaps(saved) {
 		if running {
 			_ = requestStop(beat.PID)
 		}
@@ -118,9 +118,22 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string, setti
 			return report, err
 		}
 	}
-	beat, err = d.waitServing(ctx, names)
+	beat, err = d.waitServing(ctx, names, tapPorts(saved, root))
 	d.fill(&report, beat, err == nil)
 	return report, err
+}
+
+// tapPorts lists the tap ports of the project at root.
+func tapPorts(saved []state.ProjectState, root string) []int {
+	var ports []int
+	for _, project := range saved {
+		if project.Path == root {
+			for _, tap := range project.Taps {
+				ports = append(ports, tap.Port)
+			}
+		}
+	}
+	return ports
 }
 
 // Status reads the daemon's heartbeat without changing anything.
@@ -236,8 +249,9 @@ func ignorePierDir(root string) error {
 	return err
 }
 
-// waitServing waits until the daemon reports every name past probing.
-func (d *Directory) waitServing(ctx context.Context, names []string) (Heartbeat, error) {
+// waitServing waits until the daemon reports every name past probing and
+// every tap port opened (or failed).
+func (d *Directory) waitServing(ctx context.Context, names []string, taps []int) (Heartbeat, error) {
 	deadline := d.now().Add(d.wait)
 	var last Heartbeat
 	for {
@@ -247,7 +261,7 @@ func (d *Directory) waitServing(ctx context.Context, names []string) (Heartbeat,
 			if beat.Error != "" {
 				return beat, errors.New(beat.Error)
 			}
-			if settled(beat, names) {
+			if settled(beat, names) && tapsReported(beat, taps) {
 				return beat, nil
 			}
 		} else if err == nil && beat.Error != "" && beat.Build == buildID() {
@@ -275,6 +289,19 @@ func settled(beat Heartbeat, names []string) bool {
 	for _, name := range names {
 		state, ok := byName[name]
 		if !ok || state == StateProbing {
+			return false
+		}
+	}
+	return true
+}
+
+func tapsReported(beat Heartbeat, ports []int) bool {
+	reported := map[int]bool{}
+	for _, tap := range beat.Taps {
+		reported[tap.Port] = true
+	}
+	for _, port := range ports {
+		if !reported[port] {
 			return false
 		}
 	}

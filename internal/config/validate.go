@@ -74,6 +74,12 @@ func Validate(project Project) []ValidationError {
 			}
 		}
 		errors = append(errors, runErrors(service)...)
+		if _, err := resolveThrottle(service.throttle); err != nil {
+			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))
+		}
+		if _, err := resolveCapture(service.capture); err != nil {
+			errors = append(errors, serviceError(service.Name, "capture", err.Error()))
+		}
 	}
 	if (project.Local.CertFile == "") != (project.Local.KeyFile == "") {
 		errors = append(errors, ValidationError{Field: "local.tls", Message: "needs both cert and key"})

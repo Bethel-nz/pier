@@ -45,6 +45,7 @@ type Heartbeat struct {
 	MDNS      string       `json:"mdns,omitempty"` // who publishes names: pier, mDNSResponder, or the Windows DNS client
 	MDNSError string       `json:"mdnsError,omitempty"`
 	Names     []NameStatus `json:"names"`
+	Taps      []TapStatus  `json:"taps,omitempty"`
 	Warnings  []string     `json:"warnings,omitempty"`
 	Error     string       `json:"error,omitempty"`
 }

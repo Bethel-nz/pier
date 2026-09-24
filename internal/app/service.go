@@ -413,7 +413,11 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 	if err != nil {
 		return result, err
 	}
-	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused), ownedRoutes(sess.project, sess.state), req.Force)
+	taps, err := assignTaps(sess.cfg, sess.state.Taps, sess.state.Paused)
+	if err != nil {
+		return result, err
+	}
+	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused, taps), ownedRoutes(sess.project, sess.state), req.Force)
 	result.Plan = sess.plan
 	result.TailscaleSkipped = sess.tailscaleSkipped
 	return result, s.reviewPlan(sess.plan, req.Force)
@@ -704,7 +708,10 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 		}
 	}
 	services := effectiveServices(sess.cfg, overrides)
-	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, overrides, paused), ownedRoutes(sess.project, sess.state), force)
+	if sess.taps, err = assignTaps(sess.cfg, sess.state.Taps, paused); err != nil {
+		return result, err
+	}
+	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, overrides, paused, sess.taps), ownedRoutes(sess.project, sess.state), force)
 	result.Plan = sess.plan
 	result.TailscaleSkipped = sess.tailscaleSkipped
 	if err := s.reviewPlan(sess.plan, force); err != nil {
@@ -748,6 +755,8 @@ type session struct {
 	dns     string
 	plan    reconcile.Plan
 	local   localname.Report
+	// taps are the services Pier throttles or captures after this change.
+	taps []state.Tap
 	// tailscaleSkipped says why Tailscale was left alone, when it is unavailable
 	// and the project still has local names to serve.
 	tailscaleSkipped string
@@ -883,9 +892,12 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 
 func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool, keepDomains bool) error {
 	domains := []state.LocalDomain(nil)
+	taps := []state.Tap(nil)
 	if keepDomains {
 		domains = localDomains(sess.cfg, paused)
+		taps = sess.taps
 	}
+	hadTaps := len(sess.state.Taps) > 0
 	// Refuse a taken name before Tailscale changes, so a rejected up leaves nothing half-applied.
 	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
 		return err
@@ -901,9 +913,10 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
 	domainsChanged := !sameDomains(sess.state.Domains, domains) || (len(domains) > 0 && sess.state.Path != sess.project.Root) ||
 		sess.state.Local != settings
-	if result.Verified == nil && !pausedChanged && !domainsChanged {
+	tapsChanged := !sameTaps(sess.state.Taps, taps) || (len(taps) > 0 && sess.state.Path != sess.project.Root)
+	if result.Verified == nil && !pausedChanged && !domainsChanged && !tapsChanged {
 		// Nothing to save, but the daemon may have stopped since: make it serve again.
-		return s.syncLocal(ctx, sess, domains)
+		return s.syncLocal(ctx, sess, domains, hadTaps)
 	}
 	st := sess.state
 	st.Version = state.CurrentVersion
@@ -920,19 +933,20 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	}
 	st.Paused = compactBoolMap(paused)
 	st.Domains = domains
+	st.Taps = taps
 	st.Local = settings
 	st.UpdatedAt = s.clock()
 	if err := s.store.Save(st); err != nil {
 		return fmt.Errorf("Pier could not save project state: %w", err)
 	}
 	sess.state = st
-	return s.syncLocal(ctx, sess, domains)
+	return s.syncLocal(ctx, sess, domains, hadTaps)
 }
 
-// syncLocal hands saved domains to the local-name daemon. Projects without
-// domains skip it, unless they just removed their last one.
-func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.LocalDomain) error {
-	if s.locals == nil || (len(domains) == 0 && !hasDomains(sess.cfg)) {
+// syncLocal hands saved domains and taps to the daemon. Projects with neither
+// skip it, unless they just removed their last one.
+func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.LocalDomain, hadTaps bool) error {
+	if s.locals == nil || (len(domains) == 0 && !hasDomains(sess.cfg) && len(sess.state.Taps) == 0 && !hadTaps) {
 		return nil
 	}
 	names := make([]string, 0, len(domains))
@@ -1013,8 +1027,8 @@ func effectiveServices(cfg config.Project, overrides map[string]bool) []config.R
 	return services
 }
 
-func desiredRoutes(proj project.Context, cfg config.Project, overrides, paused map[string]bool) []reconcile.Route {
-	services := effectiveServices(cfg, overrides)
+func desiredRoutes(proj project.Context, cfg config.Project, overrides, paused map[string]bool, taps []state.Tap) []reconcile.Route {
+	services := throughTaps(effectiveServices(cfg, overrides), taps)
 	active := make([]config.ResolvedService, 0, len(services))
 	for _, service := range services {
 		if paused[service.Name] {

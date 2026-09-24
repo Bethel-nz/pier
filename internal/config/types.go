@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // Config is the project configuration as represented in pier.yaml.
 type Config struct {
 	Version  int                `yaml:"version"`
@@ -48,6 +50,10 @@ type Service struct {
 	Env map[string]string `yaml:"env"`
 	// Watch restarts Run when a file matching one of these globs changes.
 	Watch []string `yaml:"watch"`
+	// Throttle slows traffic to the service, such as "3g".
+	Throttle *Throttle `yaml:"throttle"`
+	// Capture keeps requests to the service for pier replay, such as "24h".
+	Capture string `yaml:"capture"`
 }
 
 // Protocol is the supported local proxy protocol.
@@ -87,7 +93,19 @@ type ResolvedService struct {
 	Public    bool
 	Domain    string
 	Run       Run
+	// Throttle is zero at full speed.
+	Throttle Shaping
+	// Capture is how long requests are kept for replay; 0 captures nothing.
+	Capture time.Duration
+
+	// As written, for Validate to explain.
+	throttle *Throttle
+	capture  string
 }
+
+// Tapped reports whether Pier must see this service's traffic itself: to
+// slow it or to record it.
+func (s ResolvedService) Tapped() bool { return !s.Throttle.IsZero() || s.Capture > 0 }
 
 // Run is how Pier starts a service. Command is empty when Pier does not run it.
 type Run struct {

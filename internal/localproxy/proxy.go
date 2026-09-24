@@ -3,6 +3,8 @@
 package localproxy
 
 import (
+	"github.com/Bethel-nz/pier/internal/capture"
+
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -20,19 +22,49 @@ const (
 	maxHops   = 5
 )
 
-// Route sends one .local host to one loopback target.
+// Route sends one .local host, or one tap, to one loopback target.
 type Route struct {
 	Host    string
 	Target  string
 	Service string
 	// ThisMachineOnly refuses clients other than the machine running Pier.
 	ThisMachineOnly bool
+	// Shaping slows the service down; the zero value is full speed.
+	Shaping Shaping
+	// Capture receives every finished request when set.
+	Capture Recorder
+}
+
+// Recorder keeps requests for replay.
+type Recorder interface {
+	Record(capture.Exchange)
 }
 
 type route struct {
 	Route
-	target *url.URL
-	proxy  *httputil.ReverseProxy
+	target  *url.URL
+	handler http.Handler // shaping, capture, then the reverse proxy
+}
+
+// build parses r's target and assembles its handler chain.
+func (p *Proxy) build(r Route) (*route, error) {
+	target, err := url.Parse(r.Target)
+	if err != nil || target.Host == "" {
+		return nil, fmt.Errorf("invalid target %q for %s", r.Target, r.Service)
+	}
+	built := &route{Route: r, target: target}
+	built.handler = shape(r.Shaping, captureTo(r.Capture, r.Service, p.reverseProxy(built)))
+	return built, nil
+}
+
+// Tap serves one service on its own loopback port, for traffic that reaches
+// it without a .local name: Tailscale Serve and Funnel point at the tap.
+func (p *Proxy) Tap(r Route) (http.Handler, error) {
+	built, err := p.build(r)
+	if err != nil {
+		return nil, err
+	}
+	return p.record(built.handler), nil
 }
 
 // Proxy holds the live route table, certificates, and CA.
@@ -51,16 +83,23 @@ func New() *Proxy {
 }
 
 // SetRoutes replaces the route table. An invalid target rejects the whole set.
+// Unchanged routes keep their proxy, and with it their idle connections.
 func (p *Proxy) SetRoutes(routes []Route) error {
+	p.mu.RLock()
+	current := p.routes
+	p.mu.RUnlock()
 	next := make(map[string]*route, len(routes))
 	for _, r := range routes {
-		target, err := url.Parse(r.Target)
-		if err != nil || target.Host == "" {
-			return fmt.Errorf("invalid target %q for %s", r.Target, r.Host)
+		host := normalizeHost(r.Host)
+		if existing, ok := current[host]; ok && existing.Route == r {
+			next[host] = existing
+			continue
 		}
-		built := &route{Route: r, target: target}
-		built.proxy = p.reverseProxy(built)
-		next[normalizeHost(r.Host)] = built
+		built, err := p.build(r)
+		if err != nil {
+			return err
+		}
+		next[host] = built
 	}
 	p.mu.Lock()
 	p.routes = next
@@ -142,7 +181,7 @@ func (p *Proxy) route() http.Handler {
 				"<b>"+escape(host)+"</b> is set to <code>local.lan: false</code>, so Pier serves it to this computer only.")
 			return
 		}
-		found.proxy.ServeHTTP(w, r)
+		found.handler.ServeHTTP(w, r)
 	})
 }
 
@@ -192,16 +231,28 @@ func (p *Proxy) reverseProxy(rt *route) *httputil.ReverseProxy {
 			hops, _ := strconv.Atoi(pr.In.Header.Get(hopHeader))
 			pr.SetURL(rt.target)
 			pr.SetXForwarded()
-			if port := portOf(pr.In); port != "" {
+			if rt.Host == "" {
+				keepForwarded(pr) // a tap's client is tailscaled, which already said who asked
+			} else if port := portOf(pr.In); port != "" {
 				pr.Out.Header.Set("X-Forwarded-Port", port)
 			}
 			pr.Out.Header.Set(hopHeader, strconv.Itoa(hops+1))
 			translateOrigin(pr, rt.target)
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			writePage(w, http.StatusBadGateway, rt.Service+" is not responding",
-				"Pier routes <b>"+escape(rt.Host)+"</b> to <code>"+escape(rt.target.Host)+"</code>, but nothing answered there. Start the service, then reload.")
+				"Pier routes <b>"+escape(normalizeHost(r.Host))+"</b> to <code>"+escape(rt.target.Host)+"</code>, but nothing answered there. Start the service, then reload.")
 		},
+	}
+}
+
+// keepForwarded restores the X-Forwarded headers a trusted local proxy set,
+// which SetXForwarded replaced with loopback values.
+func keepForwarded(pr *httputil.ProxyRequest) {
+	for _, name := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+		if values := pr.In.Header.Values(name); len(values) > 0 {
+			pr.Out.Header[name] = values
+		}
 	}
 }
 

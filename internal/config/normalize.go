@@ -51,6 +51,8 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		target, host, port := resolveTarget(service.Target, Protocol(protocol))
+		shaping, _ := resolveThrottle(service.Throttle) // Validate reports a bad one
+		keep, _ := resolveCapture(strings.TrimSpace(service.Capture))
 		httpsPort := uint16(8443)
 		if public {
 			httpsPort = 443
@@ -72,6 +74,10 @@ func Normalize(cfg Config) (Project, error) {
 				Env:     service.Env,
 				Watch:   service.Watch,
 			},
+			Throttle: shaping,
+			Capture:  keep,
+			throttle: service.Throttle,
+			capture:  strings.TrimSpace(service.Capture),
 		})
 	}
 
