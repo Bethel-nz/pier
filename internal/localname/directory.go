@@ -5,9 +5,11 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/certs"
@@ -34,8 +36,20 @@ type Report struct {
 	// Autostart is set when the daemon starts at login for some project.
 	Autostart bool
 	// APIURL is the loopback dashboard API, while the daemon runs.
-	APIURL   string
-	Warnings []string
+	APIURL string
+	// LANAddress is this machine's LAN address, for the plain-HTTP fallback URLs.
+	LANAddress string
+	Warnings   []string
+}
+
+// LANURL is the plain-HTTP fallback address for name on this machine's LAN
+// IP, or "" when there is none. It works where .local names do not resolve.
+func (r Report) LANURL(name string) string {
+	status, ok := r.Names[name]
+	if !r.Running || !ok || status.LANPort == 0 || r.LANAddress == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(r.LANAddress, strconv.Itoa(status.LANPort)) + "/"
 }
 
 // URL is the browser address for name, or "" when it is not being served.
@@ -329,6 +343,7 @@ func (d *Directory) fill(report *Report, beat Heartbeat, running bool) {
 		return
 	}
 	report.HTTPSPort = beat.HTTPSPort
+	report.LANAddress = beat.LANAddress
 	if beat.APIPort != 0 {
 		report.APIURL = fmt.Sprintf("http://127.0.0.1:%d/api", beat.APIPort)
 	}

@@ -108,4 +108,8 @@ type LocalDomain struct {
 	Service string `json:"service"`
 	Name    string `json:"name"`
 	Target  string `json:"target"`
+	// LANPort serves the service over plain HTTP on this machine's LAN
+	// address too, for devices that cannot resolve .local. 0 when local.lan
+	// is false.
+	LANPort int `json:"lanPort,omitempty"`
 }

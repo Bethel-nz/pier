@@ -156,6 +156,10 @@ A background daemon (`pier locald`, started by `pier up`) answers multicast DNS 
 
 `pier status` shows a local URL only while the daemon serves the name. Otherwise it shows the state: `probing`, `conflict` (another device or project answers for the name), `paused`, or `down`.
 
+### LAN fallback
+
+Each local service also gets a plain-HTTP port on every address of this machine, starting at `4100`, saved per service so it stays the same across `pier up` runs. `pier up` and `pier status` print it as `lan  web  http://<LAN IP>:4100/`, and `pier qr --lan` shows it as a QR code. It proxies exactly like the `.local` name, with the same throttle and capture, and needs no DNS, multicast, or certificate, so it works where `.local` does not. Because it is plain HTTP, pages there are not a secure context. A firewall on this machine may ask once to allow Pier's incoming connections.
+
 ### `local` settings
 
 An optional top-level `local` block changes how the project's names are served:
@@ -171,7 +175,7 @@ local:
 
 | Field | Meaning |
 | --- | --- |
-| `local.lan` | `false` serves the names to this machine only: other devices get `403`. They can still see the name, because hiding it would need `sudo`. |
+| `local.lan` | `false` serves the names to this machine only: other devices get `403`, and there is no plain-HTTP `lan` address. They can still see the name, because hiding it would need `sudo`. |
 | `local.autostart` | Serve the names after login without running `pier up`. Pier adds a per-user login item (a macOS LaunchAgent, a systemd user unit, or the Windows `Run` key) while any project asks for it, and removes it when none do. |
 | `local.tls.cert`, `local.tls.key` | Serve your own certificate instead of Pier's, with paths relative to the project root. It must cover every `local` name in the project. Pier then skips its CA and the trust prompt. |
 

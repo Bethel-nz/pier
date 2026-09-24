@@ -57,6 +57,17 @@ func (p *Proxy) build(r Route) (*route, error) {
 	return built, nil
 }
 
+// Direct serves one .local route on a port of its own, whatever Host the
+// client sent: the plain-HTTP LAN fallback for devices that cannot resolve
+// .local. r.Host still names the route in error pages and captures.
+func (p *Proxy) Direct(r Route) (http.Handler, error) {
+	built, err := p.build(r)
+	if err != nil {
+		return nil, err
+	}
+	return p.record(built.handler), nil
+}
+
 // Tap serves one service on its own loopback port, for traffic that reaches
 // it without a .local name: Tailscale Serve and Funnel point at the tap.
 func (p *Proxy) Tap(r Route) (http.Handler, error) {

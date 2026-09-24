@@ -97,6 +97,7 @@ type JSONService struct {
 	URL        string `json:"url"`
 	Domain     string `json:"domain,omitempty"`
 	LocalURL   string `json:"localUrl,omitempty"`
+	LANURL     string `json:"lanUrl,omitempty"`
 	LocalState string `json:"localState,omitempty"`
 	HTTPSPort  uint16 `json:"httpsPort"`
 	// PublicSince is when the live Funnel route was made, when known.
@@ -213,6 +214,7 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			URL:         service.URL,
 			Domain:      service.Domain,
 			LocalURL:    service.LocalURL,
+			LANURL:      service.LANURL,
 			LocalState:  service.LocalState,
 			HTTPSPort:   service.HTTPSPort,
 			Drift:       service.Drift,

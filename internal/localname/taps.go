@@ -142,10 +142,15 @@ func (d *daemon) syncTaps(saved []state.ProjectState, now time.Time) (map[tapKey
 }
 
 func (d *daemon) openTap(port int) *tapServer {
+	return openPort("127.0.0.1", port, "tap")
+}
+
+// openPort serves a swappable handler on host:port. host "" is every address.
+func openPort(host string, port int, what string) *tapServer {
 	server := &tapServer{port: port}
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
-		server.err = errors.New("tap port " + strconv.Itoa(port) + " is taken by another program; run pier down, then pier up, to pick another")
+		server.err = errors.New(what + " port " + strconv.Itoa(port) + " is taken by another program; run pier down, then pier up, to pick another")
 		return server
 	}
 	server.server = &http.Server{
@@ -154,7 +159,7 @@ func (d *daemon) openTap(port int) *tapServer {
 				(*handler).ServeHTTP(w, r)
 				return
 			}
-			http.Error(w, "Pier is still starting this service's tap", http.StatusServiceUnavailable)
+			http.Error(w, "Pier is still starting this service's "+what, http.StatusServiceUnavailable)
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          quietLog(),

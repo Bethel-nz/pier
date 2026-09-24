@@ -57,6 +57,7 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 		proxy:         localproxy.New(),
 		certs:         map[string]loadedCert{},
 		taps:          map[tapKey]*tapServer{},
+		lanPorts:      map[int]*tapServer{},
 		captures:      map[string]*projectCapture{},
 		expire:        hooks.Expire,
 		expiring:      map[string]*expiry{},
@@ -70,6 +71,7 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 	}
 	defer removeHeartbeat(d.beat.PID)
 	defer d.closeServers()
+	defer d.closeLANPorts()
 	defer d.closeTaps() // first: captured requests are written before the heartbeat goes
 
 	tick := time.NewTicker(time.Second)
@@ -117,6 +119,7 @@ type daemon struct {
 	listeners     []*localproxy.Listeners
 	certs         map[string]loadedCert
 	taps          map[tapKey]*tapServer
+	lanPorts      map[int]*tapServer         // plain-HTTP LAN fallback, by port
 	captures      map[string]*projectCapture // by project ID
 	caPEM         []byte
 	startup       []string // warnings found once at startup, such as a port fallback
@@ -245,8 +248,18 @@ func (d *daemon) reconcile(now time.Time) bool {
 	served := map[string]*tls.Certificate{}
 	statuses := make([]NameStatus, 0, len(routes)+len(conflicts))
 	names := make([]string, 0, len(routes))
+	lan := map[int]localproxy.Route{}
 	for _, route := range routes {
-		status := NameStatus{Name: route.Name, Service: route.Service, Project: route.ProjectID, Target: route.Target}
+		status := NameStatus{Name: route.Name, Service: route.Service, Project: route.ProjectID, Target: route.Target, LANPort: route.LANPort}
+		// A tapped service's .local name is throttled and captured like its tap.
+		tap := tapped[tapKey{route.ProjectID, route.Service}]
+		proxy := localproxy.Route{
+			Host: route.Name, Target: route.Target, Service: route.Service, ThisMachineOnly: route.ThisMachineOnly,
+			Shaping: tap.Shaping, Capture: tap.Capture,
+		}
+		if route.LANPort != 0 {
+			lan[route.LANPort] = proxy // plain HTTP needs no certificate
+		}
 		cert, certErr := d.certificate(route.CertFile, route.KeyFile)
 		if certErr != nil {
 			status.State = StateNoCertificate
@@ -255,12 +268,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 			continue
 		}
 		served[route.Name] = cert
-		// A tapped service's .local name is throttled and captured like its tap.
-		tap := tapped[tapKey{route.ProjectID, route.Service}]
-		proxied = append(proxied, localproxy.Route{
-			Host: route.Name, Target: route.Target, Service: route.Service, ThisMachineOnly: route.ThisMachineOnly,
-			Shaping: tap.Shaping, Capture: tap.Capture,
-		})
+		proxied = append(proxied, proxy)
 		names = append(names, route.Name)
 		statuses = append(statuses, status)
 	}
@@ -268,6 +276,17 @@ func (d *daemon) reconcile(now time.Time) bool {
 		warnings = append(warnings, err.Error())
 	}
 	d.proxy.SetCertificates(served)
+	failedLAN := d.syncLANPorts(lan)
+	for i := range statuses {
+		if detail, failed := failedLAN[statuses[i].Name]; failed {
+			statuses[i].LANPort = 0
+			warnings = append(warnings, statuses[i].Name+": "+detail)
+		}
+	}
+	d.beat.LANAddress = ""
+	if ip := lanAddress(); ip != nil {
+		d.beat.LANAddress = ip.String()
+	}
 
 	mdnsState := map[string]mdns.Status{}
 	if d.responder != nil {

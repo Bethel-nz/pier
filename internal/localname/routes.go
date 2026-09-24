@@ -17,6 +17,8 @@ type Route struct {
 	KeyFile   string
 	// ThisMachineOnly refuses connections from other devices.
 	ThisMachineOnly bool
+	// LANPort serves the name over plain HTTP on this machine's LAN address; 0 for none.
+	LANPort int
 }
 
 // Conflict is a name that two projects both declared. The first claim wins.
@@ -60,6 +62,9 @@ func Routes(projects []state.ProjectState) ([]Route, []Conflict) {
 				KeyFile:         keyFile,
 				ThisMachineOnly: project.Local.ThisMachineOnly,
 			})
+			if !project.Local.ThisMachineOnly {
+				routes[len(routes)-1].LANPort = domain.LANPort
+			}
 		}
 	}
 	sort.Slice(routes, func(i, j int) bool { return routes[i].Name < routes[j].Name })

@@ -173,6 +173,9 @@ type ServiceInfo struct {
 	Domain    string
 	// LocalURL is set only while Pier is actually serving Domain.
 	LocalURL string
+	// LANURL is the plain-HTTP fallback on this machine's LAN IP, for devices
+	// that cannot resolve Domain.
+	LANURL string
 	// LocalState is live, probing, conflict, no-certificate, mdns-unavailable, or down.
 	LocalState string
 	Health     health.Result
@@ -911,7 +914,7 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	taps := []state.Tap(nil)
 	var until map[string]time.Time
 	if keepDomains {
-		domains = localDomains(sess.cfg, paused)
+		domains = localDomains(sess.cfg, paused, sess.state.Domains)
 		taps = sess.taps
 		until = sess.until
 	}
@@ -1169,17 +1172,31 @@ func indexHealth(results []health.Result) map[string]health.Result {
 	return indexed
 }
 
-func localDomains(cfg config.Project, paused map[string]bool) []state.LocalDomain {
+// localDomains lists the project's served names. Each gets a LAN port too,
+// reused from saved state so a bookmark on a phone keeps working.
+func localDomains(cfg config.Project, paused map[string]bool, saved []state.LocalDomain) []state.LocalDomain {
+	ports := map[string]int{}
+	taken := map[int]bool{}
+	for _, domain := range saved {
+		if domain.LANPort != 0 {
+			ports[domain.Service] = domain.LANPort
+			taken[domain.LANPort] = true
+		}
+	}
 	domains := make([]state.LocalDomain, 0)
 	for _, service := range cfg.Services {
 		if service.Domain == "" || paused[service.Name] {
 			continue
 		}
-		domains = append(domains, state.LocalDomain{
-			Service: service.Name,
-			Name:    service.Domain,
-			Target:  service.Target,
-		})
+		domain := state.LocalDomain{Service: service.Name, Name: service.Domain, Target: service.Target}
+		if cfg.Local.LAN {
+			domain.LANPort = ports[service.Name]
+			if domain.LANPort == 0 {
+				domain.LANPort = nextLANPort(taken)
+				taken[domain.LANPort] = true
+			}
+		}
+		domains = append(domains, domain)
 	}
 	return domains
 }
@@ -1232,6 +1249,7 @@ func withLocal(infos []ServiceInfo, report localname.Report) {
 		}
 		infos[i].LocalState = report.State(infos[i].Domain)
 		infos[i].LocalURL = report.URL(infos[i].Domain)
+		infos[i].LANURL = report.LANURL(infos[i].Domain)
 	}
 }
 

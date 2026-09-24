@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/config"
@@ -46,6 +47,30 @@ func freePort() (int, error) {
 	}
 	defer listener.Close()
 	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
+// firstLANPort is where LAN ports start: easy to type on a phone, and clear
+// of the usual dev-server ports.
+const firstLANPort = 4100
+
+// lanPortFree reports whether port can be bound on every address; tests replace it.
+var lanPortFree = func(port int) bool {
+	listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		return false
+	}
+	_ = listener.Close()
+	return true
+}
+
+// nextLANPort is the first port from firstLANPort that is neither taken nor busy.
+func nextLANPort(taken map[int]bool) int {
+	for port := firstLANPort; port < firstLANPort+900; port++ {
+		if !taken[port] && lanPortFree(port) {
+			return port
+		}
+	}
+	return 0 // none free: the name still works, without a LAN port
 }
 
 // throughTaps points each tapped service's Tailscale route at its tap.

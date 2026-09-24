@@ -111,6 +111,8 @@ Nothing else to install. On `pier up`, Pier:
 
 The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. The Tailscale URL is unchanged.
 
+`.local` names need the network to pass multicast and each device to trust Pier's CA, and some networks and devices won't cooperate. So every local service also gets a plain-HTTP address on this machine's LAN IP, which `pier up` prints on a `lan` line, such as `http://192.168.1.162:4100/`. It needs nothing on the other device and works on any network that lets devices reach each other. The port stays the same across runs; the IP is whatever this machine has on its current network. `pier qr --lan` shows it as a QR code. It is plain HTTP, so browser features limited to secure pages (service workers, camera, clipboard) need the `.local` name or Tailscale instead.
+
 To trust HTTPS on another device, open `http://<local-name>/.pier/` on it once (or scan `pier qr --ca`). The page detects the device and gives it a one-tap installer: a profile on iPhone and iPad, a certificate on Android, Windows, and other computers. Trust lasts for every `.local` name Pier serves, so each device does this only once. Compare the fingerprint the page shows with `pier doctor`.
 
 On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(command -v pier)"`. Without it, Pier uses port 8443 and says so. Chrome and Firefox on Linux read their own certificate stores; Pier adds its CA there when NSS's `certutil` is installed.
@@ -123,7 +125,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 
 Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
-- **Another device can't resolve `.local`.** Turn IPv6 on for both that device and the machine running Pier. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6.
+- **Another device can't resolve `.local`.** Use the `lan` address `pier up` prints meanwhile. To fix the name, turn IPv6 on for both that device and the machine running Pier. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6.
   - Windows: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
   - macOS: System Settings → Wi-Fi → Details → TCP/IP → Configure IPv6: Automatically.
   - Linux: `sysctl net.ipv6.conf.all.disable_ipv6` should print `0`.

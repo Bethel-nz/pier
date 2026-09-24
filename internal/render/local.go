@@ -57,13 +57,16 @@ func writeLocalNames(w io.Writer, services []app.ServiceInfo) {
 		}
 		if service.LocalURL != "" {
 			fmt.Fprintf(w, "local  %s  %s\n", service.Name, service.LocalURL)
-			continue
+		} else {
+			state := service.LocalState
+			if state == "" {
+				state = "down"
+			}
+			fmt.Fprintf(w, "local  %s  %s  (%s)\n", service.Name, service.Domain, state)
 		}
-		state := service.LocalState
-		if state == "" {
-			state = "down"
+		if service.LANURL != "" {
+			fmt.Fprintf(w, "lan    %s  %s  (any device on this network, no setup)\n", service.Name, service.LANURL)
 		}
-		fmt.Fprintf(w, "local  %s  %s  (%s)\n", service.Name, service.Domain, state)
 	}
 }
 

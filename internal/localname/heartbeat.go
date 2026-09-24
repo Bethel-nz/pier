@@ -30,6 +30,8 @@ type NameStatus struct {
 	Target  string `json:"target"`
 	State   string `json:"state"`
 	Detail  string `json:"detail,omitempty"`
+	// LANPort is the plain-HTTP fallback port while it is open; 0 otherwise.
+	LANPort int `json:"lanPort,omitempty"`
 }
 
 // Heartbeat is the daemon's view of itself, rewritten every second.
@@ -46,8 +48,10 @@ type Heartbeat struct {
 	MDNSError string       `json:"mdnsError,omitempty"`
 	Names     []NameStatus `json:"names"`
 	Taps      []TapStatus  `json:"taps,omitempty"`
-	Warnings  []string     `json:"warnings,omitempty"`
-	Error     string       `json:"error,omitempty"`
+	// LANAddress is this machine's address on its default network, for LAN URLs.
+	LANAddress string   `json:"lanAddress,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 // Fresh reports whether the daemon wrote this heartbeat recently.
