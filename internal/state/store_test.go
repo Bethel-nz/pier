@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,9 @@ func TestSaveLoadRoundTripPreservesOwnershipAndOverrides(t *testing.T) {
 }
 
 func TestFailedTemporaryWriteLeavesPreviousStateReadable(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only directory does not stop writes for root or on Windows, so this failure cannot be staged")
+	}
 	dir := t.TempDir()
 	store := New(dir)
 	projectID := "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff"
@@ -105,6 +109,9 @@ func TestFailedTemporaryWriteLeavesPreviousStateReadable(t *testing.T) {
 
 func TestSavedStatePermissionsDenyGroupAndWorldWrites(t *testing.T) {
 	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix mode bits; access is controlled by ACLs")
+	}
 	store := New(dir)
 	projectID := "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff"
 	if err := store.Save(ProjectState{

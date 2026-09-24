@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/health"
@@ -88,6 +90,10 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 	if err != nil {
 		return o.Error(err)
 	}
+	if result.TailscaleSkipped != "" {
+		writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+		return nil
+	}
 	if len(result.Plan.Operations) == 0 && len(result.Plan.Conflicts) == 0 {
 		fmt.Fprintln(o.Out, "no changes")
 		return nil
@@ -100,21 +106,33 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 // Up renders apply results.
 func (o Options) Up(result app.UpResult, err error) error {
 	if o.JSON {
-		payload := JSONStatus{Services: jsonServices(result.Services)}
-		if writeErr := writeJSON(o.Out, "up", result.Project, payload, warningsFromPlan(result.Plan), jsonErrs(err)); writeErr != nil {
+		payload := JSONStatus{Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
+		warnings := append(warningsFromPlan(result.Plan), result.Warnings...)
+		if result.TailscaleSkipped != "" {
+			warnings = append(warnings, "tailscale skipped: "+result.TailscaleSkipped)
+		}
+		if writeErr := writeJSON(o.Out, "up", result.Project, payload, warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
 	}
 	if err != nil {
+		if anyDomain(result.Services) && len(result.Services) > 0 {
+			writeLocalSetup(o.Err, result.Services, result.Local)
+		}
 		return o.Error(err)
 	}
-	if !hasMutations(result.Plan) {
+	switch {
+	case result.TailscaleSkipped != "":
+	case !hasMutations(result.Plan):
 		fmt.Fprintln(o.Out, "already up")
-	} else {
+	default:
 		writeOperations(o.Out, result.Plan.Operations)
 	}
 	writeServiceTable(o.Out, result.Services)
+	writeLocalSetup(o.Out, result.Services, result.Local)
+	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+	writeWarnings(o.Out, result.Warnings)
 	return nil
 }
 
@@ -129,6 +147,13 @@ func (o Options) Down(result app.DownResult, err error) error {
 	if err != nil {
 		return o.Error(err)
 	}
+	if result.TailscaleSkipped != "" {
+		fmt.Fprintln(o.Out, "local names withdrawn")
+		if result.KeptRoutes > 0 {
+			writeTailscaleSkipped(o.Out, fmt.Sprintf("%s; %d Tailscale route(s) stay until pier down runs with Tailscale up", result.TailscaleSkipped, result.KeptRoutes))
+		}
+		return nil
+	}
 	if !hasMutations(result.Plan) {
 		fmt.Fprintln(o.Out, "no owned routes")
 		return nil
@@ -140,8 +165,12 @@ func (o Options) Down(result app.DownResult, err error) error {
 // Status renders configured services.
 func (o Options) Status(result app.StatusResult, err error) error {
 	if o.JSON {
-		payload := JSONStatus{DNSName: result.DNSName, Services: jsonServices(result.Services)}
-		if writeErr := writeJSON(o.Out, "status", result.Project, payload, nil, jsonErrs(err)); writeErr != nil {
+		payload := JSONStatus{DNSName: result.DNSName, Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
+		warnings := append([]string(nil), result.Warnings...)
+		if result.TailscaleSkipped != "" {
+			warnings = append(warnings, "tailscale skipped: "+result.TailscaleSkipped)
+		}
+		if writeErr := writeJSON(o.Out, "status", result.Project, payload, warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
@@ -150,13 +179,92 @@ func (o Options) Status(result app.StatusResult, err error) error {
 		return o.Error(err)
 	}
 	writeServiceTable(o.Out, result.Services)
+	writeDrift(o.Out, result.Services)
+	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+	writeWarnings(o.Out, result.Warnings)
 	return nil
+}
+
+// Machine renders every Tailscale route on this machine, public ones first.
+func (o Options) Machine(result app.MachineResult, err error) error {
+	if o.JSON {
+		items := make([]JSONMachineRoute, 0, len(result.Routes))
+		for _, route := range result.Routes {
+			items = append(items, jsonMachineRoute(route))
+		}
+		if writeErr := writeJSON(o.Out, "status", project.Context{}, map[string]any{"dnsName": result.DNSName, "routes": items}, nil, jsonErrs(err)); writeErr != nil {
+			return writeErr
+		}
+		return err
+	}
+	if err != nil {
+		return o.Error(err)
+	}
+	if len(result.Routes) == 0 {
+		fmt.Fprintln(o.Out, "Tailscale serves nothing on this machine")
+		return nil
+	}
+	tab := tabwriter.NewWriter(o.Out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tab, "ACCESS\tURL\tTARGET\tOWNER")
+	public := 0
+	for _, route := range result.Routes {
+		access := "tailnet"
+		if route.Route.Public {
+			access = publicLabel(route.Since)
+			public++
+		}
+		owner := "-"
+		if route.Project != "" {
+			owner = route.Service + " (" + route.Project + ")"
+		}
+		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", access, orDash(route.URL), route.Route.Target, owner)
+	}
+	_ = tab.Flush()
+	if public > 0 {
+		fmt.Fprintf(o.Out, "%d route(s) are PUBLIC on the internet\n", public)
+	}
+	return nil
+}
+
+// publicColumn is loud for a service anyone on the internet can reach.
+func publicColumn(service app.ServiceInfo) string {
+	if !service.Public {
+		return "no"
+	}
+	label := publicLabel(service.PublicSince)
+	if !service.PublicUntil.IsZero() {
+		label += " · " + timeLeft(service.PublicUntil, time.Now())
+	}
+	return label
+}
+
+// publicLabel is PUBLIC, with how long when Pier knows it.
+func publicLabel(since time.Time) string {
+	if since.IsZero() {
+		return "PUBLIC"
+	}
+	return "PUBLIC " + app.Age(time.Since(since))
+}
+
+// writeDrift prints where Tailscale differs from pier.yaml, with the fix.
+func writeDrift(w io.Writer, services []app.ServiceInfo) {
+	for _, service := range services {
+		for _, drift := range service.Drift {
+			fmt.Fprintf(w, "drift        %s: %s\n", service.Name, drift)
+		}
+	}
+}
+
+func writeWarnings(w io.Writer, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "warning      %s\n", warning)
+	}
 }
 
 // Doctor renders diagnostics.
 func (o Options) Doctor(result app.DoctorResult, err error) error {
 	if o.JSON {
-		if writeErr := writeJSON(o.Out, "doctor", result.Project, jsonDoctor(result), nil, jsonErrs(err)); writeErr != nil {
+		if writeErr := writeJSON(o.Out, "doctor", result.Project, jsonDoctor(result), result.Warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
@@ -191,7 +299,26 @@ func (o Options) Doctor(result app.DoctorResult, err error) error {
 			fmt.Fprintf(o.Out, "  %s  %s\n", item.Service, item.Status)
 		}
 	}
+	if result.Local != nil {
+		writeLocalDoctor(o.Out, doctorDomains(result), *result.Local)
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Fprintln(o.Out, "Warnings")
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(o.Out, "  %s\n", warning)
+		}
+	}
 	return err
+}
+
+func doctorDomains(result app.DoctorResult) []string {
+	var domains []string
+	for _, service := range result.Config.Services {
+		if service.Domain != "" {
+			domains = append(domains, service.Domain)
+		}
+	}
+	return domains
 }
 
 // Share renders one shared service.
@@ -217,6 +344,14 @@ func (o Options) Resume(result app.ResumeResult, err error) error {
 // Add renders a newly added service.
 func (o Options) Add(result app.AddServiceResult, err error) error {
 	return o.serviceAction("service add", result.Project, result.Service, reconcile.Plan{}, err)
+}
+
+// JSONData writes data in the standard --json envelope and returns err.
+func (o Options) JSONData(command string, proj project.Context, data any, err error) error {
+	if writeErr := writeJSON(o.Out, command, proj, data, nil, jsonErrs(err)); writeErr != nil {
+		return writeErr
+	}
+	return err
 }
 
 // URL renders a resolved service URL.
@@ -261,13 +396,22 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 			service.Name,
 			displayTarget(service),
 			service.Path,
-			strconv.FormatBool(service.Public),
+			publicColumn(service),
 			strconv.FormatBool(service.Paused),
 			healthStatus,
-			service.URL,
+			orDash(service.URL),
 		)
 	}
 	_ = tab.Flush()
+	writeLocalNames(w, services)
+}
+
+// writeTailscaleSkipped explains that Tailscale was left alone and why.
+func writeTailscaleSkipped(w io.Writer, reason string) {
+	if reason == "" {
+		return
+	}
+	fmt.Fprintf(w, "tailscale    skipped: %s\n", strings.TrimPrefix(reason, "Pier cannot use Tailscale: "))
 }
 
 func writeOperations(w io.Writer, ops []reconcile.Operation) {
@@ -314,4 +458,24 @@ func warningsFromPlan(plan reconcile.Plan) []string {
 		return []string{}
 	}
 	return []string{"unmanaged Tailscale routes were taken over"}
+}
+
+// timeLeft is how long until a public window closes: "1h12m left".
+func timeLeft(until, now time.Time) string {
+	left := until.Sub(now)
+	switch {
+	case left >= time.Hour:
+		return fmt.Sprintf("%dh%02dm left", int(left.Hours()), int(left.Minutes())%60)
+	case left >= time.Minute:
+		return fmt.Sprintf("%dm left", int(left.Minutes()))
+	default:
+		return fmt.Sprintf("%ds left", max(int(left.Seconds()), 0))
+	}
+}
+
+func orDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }

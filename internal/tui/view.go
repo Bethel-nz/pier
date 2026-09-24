@@ -217,6 +217,9 @@ func (m model) serviceTable(width int) string {
 				row = m.style(lipgloss.NewStyle().Bold(true).Foreground(accentColor)).Render(row)
 			}
 			fmt.Fprintf(&b, "%s\n  %s  %s  %s\n", row, displayTarget(service), visibility(service), service.URL)
+			if local := localLabel(service); local != "" {
+				fmt.Fprintf(&b, "  local  %s\n", local)
+			}
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
@@ -242,7 +245,26 @@ func (m model) serviceDetails(service app.ServiceInfo) string {
 	if service.Paused {
 		route = "paused"
 	}
-	return fmt.Sprintf("Selected  %s\n%s Route    %s  %s\n  URL      %s", service.Name, iconRoute, service.Path, route, service.URL)
+	details := fmt.Sprintf("Selected  %s\n%s Route    %s  %s\n  URL      %s", service.Name, iconRoute, service.Path, route, service.URL)
+	if local := localLabel(service); local != "" {
+		details += "\n  Local    " + local
+	}
+	return details
+}
+
+// localLabel is the .local URL when served, or the name and why it is not.
+func localLabel(service app.ServiceInfo) string {
+	if service.Domain == "" {
+		return ""
+	}
+	if service.LocalURL != "" {
+		return service.LocalURL
+	}
+	state := service.LocalState
+	if state == "" {
+		state = "down"
+	}
+	return service.Domain + " (" + state + ")"
 }
 
 func (m model) connectionLabel() string {

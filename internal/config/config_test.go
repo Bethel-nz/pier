@@ -8,6 +8,51 @@ import (
 	"testing"
 )
 
+func TestNormalizeDomain(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "pier.yaml")
+	input := "version: 1\nname: demo\nservices:\n  api:\n    target: localhost:4000\n    local: My-App.local.\n"
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	raw, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	project, err := Normalize(raw)
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if project.Services[0].Domain != "my-app.local" {
+		t.Fatalf("domain = %q, want my-app.local", project.Services[0].Domain)
+	}
+	if errors := Validate(project); len(errors) != 0 {
+		t.Fatalf("Validate() = %v, want none", errors)
+	}
+}
+
+func TestValidateDomainLength(t *testing.T) {
+	long := strings.Repeat("a", 64)
+	project := Project{Version: 1, Name: "demo", Services: []ResolvedService{{
+		Name: "api", Target: "http://127.0.0.1:4000", Host: "127.0.0.1", Port: 4000,
+		Path: "/", Protocol: ProtocolHTTP, Domain: long + ".local",
+	}}}
+	errors := Validate(project)
+	if len(errors) != 1 || errors[0].Field != "local" {
+		t.Fatalf("Validate() = %#v, want one local error", errors)
+	}
+}
+
+func TestValidateDomain(t *testing.T) {
+	project := Project{Version: 1, Name: "demo", Services: []ResolvedService{{
+		Name: "api", Target: "http://127.0.0.1:4000", Host: "127.0.0.1", Port: 4000,
+		Path: "/", Protocol: ProtocolHTTP, Domain: "192.168.1.182",
+	}}}
+	errors := Validate(project)
+	if len(errors) != 1 || errors[0].Field != "local" {
+		t.Fatalf("Validate() = %#v, want one local error", errors)
+	}
+}
+
 func TestNormalizeDefaults(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -97,7 +142,7 @@ func TestNormalizeSortsServicesAndInheritsDefaults(t *testing.T) {
 			Protocol: "https",
 		},
 		Services: map[string]Service{
-			"web": {Target: "localhost:3000", Public: &public},
+			"web": {Target: "localhost:3000", Public: PublicFlag(public)},
 			"api": {Target: "localhost:4000"},
 		},
 	}

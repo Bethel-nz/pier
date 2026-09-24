@@ -18,8 +18,10 @@ func TestStatusTableColumns(t *testing.T) {
 		Services: []app.ServiceInfo{
 			{Name: "web", Host: "localhost", Port: 3000, Path: "/", Public: false, Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net:8443/", HTTPSPort: 8443},
 			{Name: "api", Host: "localhost", Port: 4000, Path: "/api", Public: false, Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net:8443/api", HTTPSPort: 8443},
-			{Name: "webhook", Host: "localhost", Port: 8787, Path: "/hooks", Public: true, Health: health.Result{Status: health.StatusUnavailable}, URL: "https://host.ts.net/hooks", HTTPSPort: 443},
+			{Name: "webhook", Host: "localhost", Port: 8787, Path: "/hooks", Public: true, Health: health.Result{Status: health.StatusUnavailable}, URL: "https://host.ts.net/hooks", HTTPSPort: 443,
+				Drift: []string{"PUBLIC on the internet, but pier.yaml says private; run pier up"}},
 		},
+		Warnings: []string{"https://host.ts.net/x is PUBLIC on the internet and no Pier project owns it"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("Status() error = %v", err)
@@ -27,9 +29,11 @@ func TestStatusTableColumns(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"SERVICE", "TARGET", "PATH", "PUBLIC", "PAUSED", "HEALTH", "URL",
-		"web", "localhost:3000", "/", "false", "healthy", "https://host.ts.net:8443/",
+		"web", "localhost:3000", "/", "no", "healthy", "https://host.ts.net:8443/",
 		"api", "localhost:4000", "/api",
-		"webhook", "localhost:8787", "/hooks", "true", "unavailable", "https://host.ts.net/hooks",
+		"webhook", "localhost:8787", "/hooks", "PUBLIC", "unavailable", "https://host.ts.net/hooks",
+		"drift        webhook: PUBLIC on the internet, but pier.yaml says private; run pier up",
+		"warning      https://host.ts.net/x is PUBLIC on the internet and no Pier project owns it",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Status() missing %q in:\n%s", want, got)

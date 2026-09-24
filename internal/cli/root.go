@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/localname"
+	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/tailscale"
 	"github.com/Bethel-nz/pier/internal/tui"
@@ -27,10 +29,14 @@ type App interface {
 	AddService(ctx context.Context, req app.AddServiceRequest) (app.AddServiceResult, error)
 	Open(ctx context.Context, req app.OpenRequest) (app.OpenResult, error)
 	Copy(ctx context.Context, req app.CopyRequest) (app.CopyResult, error)
+	Machine(ctx context.Context) (app.MachineResult, error)
+	RunPlan(start string) (app.RunPlan, error)
+	Targets(start string) (project.Context, map[string]string, error)
 }
 
 type runtime struct {
 	app     App
+	local   *localname.Directory
 	stdout  io.Writer
 	stderr  io.Writer
 	config  string
@@ -53,22 +59,26 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 
 // ExecuteWith runs the pier command with an injected application service.
 func ExecuteWith(ctx context.Context, args []string, stdout, stderr io.Writer, application App) error {
+	var local *localname.Directory
 	if application == nil {
 		store, err := state.Open()
 		if err != nil {
 			return err
 		}
-		application = app.New(store, tailscale.ExecRunner{})
+		service := app.New(store, tailscale.ExecRunner{})
+		local = localname.NewDirectory(store)
+		service.EnableLocalNames(local)
+		application = service
 	}
-	cmd := newRootCommand(stdout, stderr, application)
+	cmd := newRootCommand(stdout, stderr, application, local)
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
 	return cmd.ExecuteContext(ctx)
 }
 
-func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
-	rt := &runtime{app: application, stdout: stdout, stderr: stderr}
+func newRootCommand(stdout, stderr io.Writer, application App, local *localname.Directory) *cobra.Command {
+	rt := &runtime{app: application, local: local, stdout: stdout, stderr: stderr}
 	cmd := &cobra.Command{
 		Use:           "pier",
 		Short:         "Describe local services and get stable Tailscale URLs",
@@ -107,6 +117,17 @@ func newRootCommand(stdout, stderr io.Writer, application App) *cobra.Command {
 		newOpenCommand(rt),
 		newCopyCommand(rt),
 		newTUICommand(rt),
+		newTrustCommand(rt),
+		newQRCommand(rt),
+		newCleanCommand(rt),
+		newReplayCommand(rt),
+		newLocaldCommand(),
 	)
+	if local != nil {
+		cmd.PersistentPreRun = func(*cobra.Command, []string) {
+			// pier up may ask the OS to trust Pier's CA, but only with a person at the terminal.
+			local.Interactive = tui.StdioIsTTY() && !rt.json
+		}
+	}
 	return cmd
 }

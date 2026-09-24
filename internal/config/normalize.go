@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Normalize applies inherited values and produces a deterministic service list.
@@ -12,6 +13,14 @@ func Normalize(cfg Config) (Project, error) {
 	project := Project{
 		Version: cfg.Version,
 		Name:    cfg.Name,
+		Local:   Local{LAN: true, Autostart: cfg.Local.Autostart},
+	}
+	if cfg.Local.LAN != nil {
+		project.Local.LAN = *cfg.Local.LAN
+	}
+	if cfg.Local.TLS != nil {
+		project.Local.CertFile = strings.TrimSpace(cfg.Local.TLS.Cert)
+		project.Local.KeyFile = strings.TrimSpace(cfg.Local.TLS.Key)
 	}
 
 	names := make([]string, 0, len(cfg.Services))
@@ -31,8 +40,10 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		public := cfg.Defaults.Public
+		var publicFor time.Duration
 		if service.Public != nil {
-			public = *service.Public
+			public = service.Public.On
+			publicFor = service.Public.For
 		}
 
 		servicePath := service.Path
@@ -43,6 +54,8 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		target, host, port := resolveTarget(service.Target, Protocol(protocol))
+		shaping, _ := resolveThrottle(service.Throttle) // Validate reports a bad one
+		keep, _ := resolveCapture(strings.TrimSpace(service.Capture))
 		httpsPort := uint16(8443)
 		if public {
 			httpsPort = 443
@@ -57,6 +70,19 @@ func Normalize(cfg Config) (Project, error) {
 			Path:      servicePath,
 			Protocol:  Protocol(protocol),
 			Public:    public,
+			Domain:    normalizeDomain(service.Domain),
+			Run: Run{
+				Command: strings.TrimSpace(service.Run),
+				Dir:     strings.TrimSpace(service.Dir),
+				Env:     service.Env,
+				Watch:   service.Watch,
+			},
+			PublicFor:     publicFor,
+			Throttle:      shaping,
+			Capture:       keep,
+			throttle:      service.Throttle,
+			capture:       strings.TrimSpace(service.Capture),
+			publicProblem: service.Public.problem(),
 		})
 	}
 
@@ -77,4 +103,9 @@ func resolveTarget(target string, protocol Protocol) (string, string, uint16) {
 	}
 
 	return string(protocol) + "://" + net.JoinHostPort(host, portText), host, uint16(port)
+}
+
+func normalizeDomain(domain string) string {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	return strings.TrimSuffix(domain, ".")
 }

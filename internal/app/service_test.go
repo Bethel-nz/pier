@@ -287,6 +287,8 @@ func TestValidateReturnsAggregatedErrors(t *testing.T) {
 func TestStatusReturnsHealthAndURLs(t *testing.T) {
 	env := newEnv()
 	env.health["api"] = health.Result{Service: "api", Status: health.StatusUnavailable, Error: "connection refused"}
+	env.actual = env.desiredRoutes()
+	env.state.Routes = ownAll(env.actual)
 	svc := env.service()
 
 	result, err := svc.Status(context.Background(), StatusRequest{Start: env.project.Root})
@@ -311,6 +313,48 @@ func TestStatusReturnsHealthAndURLs(t *testing.T) {
 	}
 	if byName["api"].Health.Status != health.StatusUnavailable {
 		t.Errorf("api health = %q, want unavailable", byName["api"].Health.Status)
+	}
+	for _, info := range result.Services {
+		if len(info.Drift) > 0 {
+			t.Errorf("%s drift = %v, want none after a clean pier up", info.Name, info.Drift)
+		}
+	}
+}
+
+func ownAll(routes []reconcile.Route) []state.Route {
+	owned := make([]state.Route, 0, len(routes))
+	for _, route := range routes {
+		owned = append(owned, state.Route{Service: route.Service, HTTPSPort: route.HTTPSPort, Path: route.Path, Public: route.Public})
+	}
+	return owned
+}
+
+func TestStatusShowsOnlyLiveRoutesAndFlagsLeftovers(t *testing.T) {
+	env := newEnv()
+	since := env.now.Add(-30 * time.Hour)
+	// webhook is private in pier.yaml now, but an earlier run left its Funnel route up.
+	env.raw.Services["webhook"] = config.Service{Target: "localhost:8787", Path: "/hooks"}
+	env.actual = []reconcile.Route{{Service: "webhook", HTTPSPort: 443, Path: "/hooks", Target: "http://127.0.0.1:8787", Public: true}}
+	env.state.Routes = []state.Route{{Service: "webhook", HTTPSPort: 443, Path: "/hooks", Public: true, Since: since}}
+	svc := env.service()
+
+	result, err := svc.Status(context.Background(), StatusRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ServiceInfo{}
+	for _, info := range result.Services {
+		byName[info.Name] = info
+	}
+	if web := byName["web"]; web.URL != "" || len(web.Drift) != 1 || !strings.Contains(web.Drift[0], "not served") {
+		t.Fatalf("web was never applied but shows %q, drift %v", web.URL, web.Drift)
+	}
+	webhook := byName["webhook"]
+	if !webhook.Public || !webhook.PublicSince.Equal(since) {
+		t.Fatalf("the leftover Funnel route must mark webhook PUBLIC since %v: %+v", since, webhook)
+	}
+	if !strings.Contains(strings.Join(webhook.Drift, "\n"), "older route at https://host.ts.net/hooks is still live") {
+		t.Fatalf("webhook drift = %v", webhook.Drift)
 	}
 }
 
@@ -472,7 +516,7 @@ func newEnv() *fakeEnv {
 			Services: map[string]config.Service{
 				"web":     {Target: "localhost:3000"},
 				"api":     {Target: "localhost:4000", Path: "/api"},
-				"webhook": {Target: "localhost:8787", Path: "/hooks", Public: &public},
+				"webhook": {Target: "localhost:8787", Path: "/hooks", Public: config.PublicFlag(public)},
 			},
 		},
 		caps: tailscale.Capabilities{
@@ -496,7 +540,7 @@ func (e *fakeEnv) desiredRoutes() []reconcile.Route {
 	if err != nil {
 		panic(err)
 	}
-	return desiredRoutes(e.project, normalized, e.state.Overrides, e.state.Paused)
+	return desiredRoutes(e.project, normalized, e.state.Overrides, e.state.Paused, e.state.Taps)
 }
 
 func (e *fakeEnv) service() *Service {

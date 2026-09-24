@@ -5,14 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/render"
 	"github.com/Bethel-nz/pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/tailscale"
 	"github.com/Bethel-nz/pier/internal/tui"
 )
 
@@ -28,6 +32,59 @@ func (rt *runtime) renderer(command string) render.Options {
 		Out:     out,
 		Err:     err,
 	}
+}
+
+func newLocaldCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    "locald",
+		Short:  "Serve .local domains for every Pier project on this machine",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			store, err := state.Open()
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			// No local names on this service: the daemon rereads saved state itself.
+			service := app.New(store, tailscale.ExecRunner{})
+			return localname.Run(ctx, store, localname.Hooks{Expire: service.Expire})
+		},
+	}
+}
+
+func newTrustCommand(rt *runtime) *cobra.Command {
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "trust",
+		Short: "Trust Pier's local CA (pier up does this for you on first run)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			directory := rt.local
+			if directory == nil {
+				store, err := state.Open()
+				if err != nil {
+					return err
+				}
+				directory = localname.NewDirectory(store)
+			}
+			if remove {
+				path, err := directory.Untrust()
+				if err != nil {
+					return rt.renderer("trust").Error(err)
+				}
+				fmt.Fprintf(rt.stdout, "removed %s from the trust store\n", path)
+				return nil
+			}
+			path, err := directory.Trust()
+			if err != nil {
+				return rt.renderer("trust").Error(fmt.Errorf("Pier could not trust its local CA: %w", err))
+			}
+			fmt.Fprintf(rt.stdout, "trusted %s\n", path)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove Pier's CA from the trust store")
+	return cmd
 }
 
 func newInitCommand(rt *runtime) *cobra.Command {
@@ -83,10 +140,9 @@ func newUpCommand(rt *runtime) *cobra.Command {
 	var force, strict bool
 	cmd := &cobra.Command{
 		Use:   "up",
-		Short: "Apply the project plan to Tailscale Serve and Funnel",
+		Short: "Start run: commands, then serve every service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := rt.app.Up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict})
-			return rt.renderer("up").Up(result, err)
+			return rt.up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict})
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "take over unmanaged routes")
@@ -106,14 +162,21 @@ func newDownCommand(rt *runtime) *cobra.Command {
 }
 
 func newStatusCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show configured services, health, public access, and URLs",
+		Short: "Show what Tailscale serves for this project, and what differs from pier.yaml",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if all {
+				result, err := rt.app.Machine(cmd.Context())
+				return rt.renderer("status").Machine(result, err)
+			}
 			result, err := rt.app.Status(cmd.Context(), app.StatusRequest{Start: rt.start()})
 			return rt.renderer("status").Status(result, err)
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "list every Tailscale route on this machine, public ones first, whichever project made it")
+	return cmd
 }
 
 func newDoctorCommand(rt *runtime) *cobra.Command {
@@ -238,15 +301,18 @@ func existingNames(ctx context.Context, rt *runtime) []string {
 }
 
 func newOpenCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var local bool
+	cmd := &cobra.Command{
 		Use:   "open <service>",
 		Short: "Open the resolved service URL in the default browser",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rt.app.Open(cmd.Context(), app.OpenRequest{Start: rt.start(), Service: args[0]})
+			result, err := rt.app.Open(cmd.Context(), app.OpenRequest{Start: rt.start(), Service: args[0], Local: local})
 			return rt.renderer("open").URL("open", app.StatusResult{}.Project, result.URL, err)
 		},
 	}
+	cmd.Flags().BoolVar(&local, "local", false, "open the .local URL instead of the Tailscale URL")
+	return cmd
 }
 
 func newTUICommand(rt *runtime) *cobra.Command {
@@ -272,17 +338,24 @@ func runTUI(ctx context.Context, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	if rt.local != nil {
+		// OS trust prompts would tear through the TUI; pier trust handles it instead.
+		rt.local.Interactive = false
+	}
 	return tui.Run(ctx, svc, store, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
 }
 
 func newCopyCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var local bool
+	cmd := &cobra.Command{
 		Use:   "copy <service>",
 		Short: "Copy the resolved service URL to the clipboard",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rt.app.Copy(cmd.Context(), app.CopyRequest{Start: rt.start(), Service: args[0]})
+			result, err := rt.app.Copy(cmd.Context(), app.CopyRequest{Start: rt.start(), Service: args[0], Local: local})
 			return rt.renderer("copy").URL("copy", app.StatusResult{}.Project, result.URL, err)
 		},
 	}
+	cmd.Flags().BoolVar(&local, "local", false, "copy the .local URL instead of the Tailscale URL")
+	return cmd
 }

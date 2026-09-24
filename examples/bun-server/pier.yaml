@@ -9,3 +9,4 @@ services:
   web:
     target: localhost:4000
     path: /
+    local: pier-demo.local

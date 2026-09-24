@@ -1,5 +1,11 @@
 # Bun server demo
 
+Install Pier from this checkout (the local-name daemon needs a stable binary, so prefer this over `go run`):
+
+```bash
+go install ../../cmd/pier
+```
+
 Start the loopback server:
 
 ```bash
@@ -9,19 +15,21 @@ bun run start
 From another terminal in this directory:
 
 ```bash
-go run ../../cmd/pier validate
-go run ../../cmd/pier plan
-go run ../../cmd/pier up
+pier validate
+pier plan
+pier up
 ```
 
-The service is tailnet-only by default. To test Funnel, run:
+`pier up` prints a private Tailscale URL and `https://pier-demo.local/`. The first run asks your OS once to trust Pier's local CA. Open the `.local` URL on this machine, or on a phone on the same Wi-Fi after installing the CA from `http://pier-demo.local/.pier/ca.pem`.
+
+The Tailscale URL is tailnet-only by default. To test Funnel, run:
 
 ```bash
-go run ../../cmd/pier share web
+pier share web
 ```
 
-Remove only this demo's routes when finished:
+Remove only this demo's routes and local name when finished:
 
 ```bash
-go run ../../cmd/pier down
+pier down
 ```

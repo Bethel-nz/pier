@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -75,7 +76,7 @@ func TestFindCreatesMissingProjectIDForHandAuthoredConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat generated project ID: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no Unix mode bits
 		t.Errorf("generated project ID permissions = %#o, want 0600", info.Mode().Perm())
 	}
 	gitignore, err := os.ReadFile(filepath.Join(root, ".gitignore"))
@@ -173,7 +174,7 @@ func TestInitCreatesMinimalProjectFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if raw.Services["web"].Public == nil || *raw.Services["web"].Public {
+	if raw.Services["web"].Public == nil || raw.Services["web"].Public.On {
 		t.Errorf("Init() web public = %v, want explicit false boolean", raw.Services["web"].Public)
 	}
 	project, err := config.Normalize(raw)
@@ -195,7 +196,7 @@ func TestInitCreatesMinimalProjectFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat project ID: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no Unix mode bits
 		t.Errorf("project ID permissions = %#o, want 0600", info.Mode().Perm())
 	}
 }

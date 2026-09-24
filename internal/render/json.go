@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/config"
@@ -82,31 +83,61 @@ type JSONConflict struct {
 type JSONStatus struct {
 	DNSName  string        `json:"dnsName"`
 	Services []JSONService `json:"services"`
+	Local    *JSONLocal    `json:"local,omitempty"`
 }
 
 // JSONService is one service row.
 type JSONService struct {
-	Name      string `json:"name"`
-	Target    string `json:"target"`
-	Path      string `json:"path"`
-	Public    bool   `json:"public"`
-	Paused    bool   `json:"paused"`
-	Health    string `json:"health"`
-	URL       string `json:"url"`
-	HTTPSPort uint16 `json:"httpsPort"`
+	Name       string `json:"name"`
+	Target     string `json:"target"`
+	Path       string `json:"path"`
+	Public     bool   `json:"public"`
+	Paused     bool   `json:"paused"`
+	Health     string `json:"health"`
+	URL        string `json:"url"`
+	Domain     string `json:"domain,omitempty"`
+	LocalURL   string `json:"localUrl,omitempty"`
+	LANURL     string `json:"lanUrl,omitempty"`
+	LocalState string `json:"localState,omitempty"`
+	HTTPSPort  uint16 `json:"httpsPort"`
+	// PublicSince is when the live Funnel route was made, when known.
+	PublicSince *time.Time `json:"publicSince,omitempty"`
+	// PublicUntil is when a timed public window closes.
+	PublicUntil *time.Time `json:"publicUntil,omitempty"`
+	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
+	Drift []string `json:"drift,omitempty"`
+}
+
+// JSONMachineRoute is one Tailscale route on this machine, for status --all.
+type JSONMachineRoute struct {
+	URL     string     `json:"url"`
+	Target  string     `json:"target"`
+	Public  bool       `json:"public"`
+	Project string     `json:"project,omitempty"`
+	Service string     `json:"service,omitempty"`
+	Since   *time.Time `json:"since,omitempty"`
+}
+
+func jsonMachineRoute(route app.MachineRoute) JSONMachineRoute {
+	out := JSONMachineRoute{URL: route.URL, Target: route.Route.Target, Public: route.Route.Public, Project: route.Project, Service: route.Service}
+	if !route.Since.IsZero() {
+		out.Since = &route.Since
+	}
+	return out
 }
 
 // JSONDoctor is the doctor command payload.
 type JSONDoctor struct {
-	Installed     bool     `json:"installed"`
-	DaemonRunning bool     `json:"daemonRunning"`
-	Authenticated bool     `json:"authenticated"`
-	MagicDNS      bool     `json:"magicDNS"`
-	HTTPS         bool     `json:"https"`
-	Funnel        bool     `json:"funnel"`
-	Tailscale     string   `json:"tailscale,omitempty"`
-	Health        []string `json:"health,omitempty"`
-	Validation    []string `json:"validation,omitempty"`
+	Installed     bool       `json:"installed"`
+	DaemonRunning bool       `json:"daemonRunning"`
+	Authenticated bool       `json:"authenticated"`
+	MagicDNS      bool       `json:"magicDNS"`
+	HTTPS         bool       `json:"https"`
+	Funnel        bool       `json:"funnel"`
+	Tailscale     string     `json:"tailscale,omitempty"`
+	Health        []string   `json:"health,omitempty"`
+	Validation    []string   `json:"validation,omitempty"`
+	Local         *JSONLocal `json:"local,omitempty"`
 }
 
 func writeJSON(w io.Writer, command string, proj project.Context, data any, warnings []string, errs []JSONError) error {
@@ -168,16 +199,30 @@ func jsonRoute(route reconcile.Route) JSONRoute {
 func jsonServices(services []app.ServiceInfo) []JSONService {
 	out := make([]JSONService, 0, len(services))
 	for _, service := range services {
+		var until *time.Time
+		if !service.PublicUntil.IsZero() {
+			until = &service.PublicUntil
+		}
 		out = append(out, JSONService{
-			Name:      service.Name,
-			Target:    displayTarget(service),
-			Path:      service.Path,
-			Public:    service.Public,
-			Paused:    service.Paused,
-			Health:    string(service.Health.Status),
-			URL:       service.URL,
-			HTTPSPort: service.HTTPSPort,
+			PublicUntil: until,
+			Name:        service.Name,
+			Target:      displayTarget(service),
+			Path:        service.Path,
+			Public:      service.Public,
+			Paused:      service.Paused,
+			Health:      string(service.Health.Status),
+			URL:         service.URL,
+			Domain:      service.Domain,
+			LocalURL:    service.LocalURL,
+			LANURL:      service.LANURL,
+			LocalState:  service.LocalState,
+			HTTPSPort:   service.HTTPSPort,
+			Drift:       service.Drift,
 		})
+		if !service.PublicSince.IsZero() {
+			since := service.PublicSince
+			out[len(out)-1].PublicSince = &since
+		}
 	}
 	return out
 }
@@ -201,6 +246,13 @@ func jsonDoctor(result app.DoctorResult) JSONDoctor {
 	}
 	for _, item := range result.Validation {
 		payload.Validation = append(payload.Validation, item.Error())
+	}
+	if result.Local != nil {
+		payload.Local = &JSONLocal{
+			Running: result.Local.Running, HTTPSPort: result.Local.HTTPSPort,
+			CAPath: result.Local.CAPath, CATrusted: result.Local.CATrusted,
+			Warnings: localWarnings(*result.Local),
+		}
 	}
 	return payload
 }

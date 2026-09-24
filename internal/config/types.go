@@ -1,11 +1,30 @@
 package config
 
+import "time"
+
 // Config is the project configuration as represented in pier.yaml.
 type Config struct {
 	Version  int                `yaml:"version"`
 	Name     string             `yaml:"name"`
 	Defaults Defaults           `yaml:"defaults"`
+	Local    LocalSettings      `yaml:"local"`
 	Services map[string]Service `yaml:"services"`
+}
+
+// LocalSettings configure how the project's local: names are served.
+type LocalSettings struct {
+	// LAN defaults to true. false serves the names to this machine only.
+	LAN *bool `yaml:"lan"`
+	// Autostart serves the names after login without running pier up.
+	Autostart bool `yaml:"autostart"`
+	// TLS replaces Pier's certificate with your own.
+	TLS *TLSFiles `yaml:"tls"`
+}
+
+// TLSFiles are a certificate and key, relative to the project root.
+type TLSFiles struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
 }
 
 // Defaults contains values inherited by services that omit them.
@@ -16,10 +35,25 @@ type Defaults struct {
 
 // Service is a service entry before defaults are applied.
 type Service struct {
-	Target   string `yaml:"target"`
-	Path     string `yaml:"path"`
-	Public   *bool  `yaml:"public"`
-	Protocol string `yaml:"protocol"`
+	Target   string  `yaml:"target"`
+	Path     string  `yaml:"path"`
+	Public   *Public `yaml:"public"`
+	Protocol string  `yaml:"protocol"`
+	// Domain is the optional `local:` name, such as my-app.local, that pier up
+	// serves over HTTPS to every device on the local network.
+	Domain string `yaml:"local"`
+	// Run is an optional shell command pier up starts and keeps running.
+	Run string `yaml:"run"`
+	// Dir is where Run starts, relative to the project root.
+	Dir string `yaml:"dir"`
+	// Env adds variables for Run. PORT defaults to the target's port.
+	Env map[string]string `yaml:"env"`
+	// Watch restarts Run when a file matching one of these globs changes.
+	Watch []string `yaml:"watch"`
+	// Throttle slows traffic to the service, such as "3g".
+	Throttle *Throttle `yaml:"throttle"`
+	// Capture keeps requests to the service for pier replay, such as "24h".
+	Capture string `yaml:"capture"`
 }
 
 // Protocol is the supported local proxy protocol.
@@ -34,7 +68,17 @@ const (
 type Project struct {
 	Version  int
 	Name     string
+	Local    Local
 	Services []ResolvedService
+}
+
+// Local is the normalized local: block. Cert and Key stay as written;
+// the caller resolves them against the project root.
+type Local struct {
+	LAN       bool
+	Autostart bool
+	CertFile  string
+	KeyFile   string
 }
 
 // ResolvedService is a service with inherited values and listener allocation applied.
@@ -47,4 +91,29 @@ type ResolvedService struct {
 	Path      string
 	Protocol  Protocol
 	Public    bool
+	Domain    string
+	Run       Run
+	// PublicFor is how long Public lasts after each pier up; 0 is until pier down.
+	PublicFor time.Duration
+	// Throttle is zero at full speed.
+	Throttle Shaping
+	// Capture is how long requests are kept for replay; 0 captures nothing.
+	Capture time.Duration
+
+	// As written, for Validate to explain.
+	throttle      *Throttle
+	capture       string
+	publicProblem string
+}
+
+// Tapped reports whether Pier must see this service's traffic itself: to
+// slow it or to record it.
+func (s ResolvedService) Tapped() bool { return !s.Throttle.IsZero() || s.Capture > 0 }
+
+// Run is how Pier starts a service. Command is empty when Pier does not run it.
+type Run struct {
+	Command string
+	Dir     string // relative to the project root
+	Env     map[string]string
+	Watch   []string
 }

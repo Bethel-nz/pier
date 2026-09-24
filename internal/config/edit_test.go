@@ -15,7 +15,7 @@ func TestAddServiceInsertsValidatedService(t *testing.T) {
 	}
 
 	public := false
-	err := AddService(path, "api", Service{Target: "localhost:4000", Path: "/api", Public: &public})
+	err := AddService(path, "api", Service{Target: "localhost:4000", Path: "/api", Public: PublicFlag(public)})
 	if err != nil {
 		t.Fatalf("AddService() error = %v", err)
 	}
@@ -48,13 +48,13 @@ func TestAddServiceRejectsDuplicateAndInvalid(t *testing.T) {
 	}
 
 	public := false
-	if err := AddService(path, "web", Service{Target: "localhost:4000", Public: &public}); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := AddService(path, "web", Service{Target: "localhost:4000", Public: PublicFlag(public)}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate error = %v, want already exists", err)
 	}
-	if err := AddService(path, "API", Service{Target: "localhost:4000", Public: &public}); err == nil {
+	if err := AddService(path, "API", Service{Target: "localhost:4000", Public: PublicFlag(public)}); err == nil {
 		t.Fatal("invalid name error = nil")
 	}
-	if err := AddService(path, "api", Service{Target: "example.com:4000", Public: &public}); err == nil {
+	if err := AddService(path, "api", Service{Target: "example.com:4000", Public: PublicFlag(public)}); err == nil {
 		t.Fatal("invalid target error = nil")
 	}
 
