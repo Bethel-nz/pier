@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/pier.svg" width="96" alt=""></p>
+
 # Pier
 
 Describe the local services in a project, run `pier up`, and get stable Tailscale URLs for all of them.
@@ -116,6 +118,23 @@ On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(comman
 A `local` name makes that service reachable by anyone on the same network. Use it on networks you trust.
 
 A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration details are in [`docs/configuration.md`](docs/configuration.md).
+
+### Gotchas
+
+Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
+
+- **Another device can't resolve `.local`.** Turn IPv6 on for both that device and the machine running Pier. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6.
+  - Windows: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
+  - macOS: System Settings → Wi-Fi → Details → TCP/IP → Configure IPv6: Automatically.
+  - Linux: `sysctl net.ipv6.conf.all.disable_ipv6` should print `0`.
+  - Phones: on by default.
+- **Windows network set to Public.** The firewall drops incoming mDNS replies. Run `Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private`.
+- **`ping <mac-name>.local` works but the Pier name doesn't.** Windows resolved the Mac's name over NetBIOS, not mDNS, so it proves nothing. Test with `ping myapp.local`.
+- **Chrome on iPhone can't resolve `.local`, Safari can.** Use Safari, or turn off Secure DNS in Chrome's settings.
+- **Certificate warning on phones and other machines.** `pier trust` covers only this machine. Open `http://myapp.local/.pier/` on the device (or scan `pier qr --ca`) and follow its steps.
+- **The URL has `:8443`.** Tailscale Serve or Funnel holds port 443, so Pier shares it by binding its LAN addresses, or falls back to 8443. Old Serve and Funnel routes, possibly public ones, stay until you run `pier down` with Tailscale running.
+- **`pier: command not found` after `go install`.** Add `$(go env GOPATH)/bin` to your `PATH`.
+- **Changes don't take effect in the daemon.** It keeps the environment it started with. After changing permissions or reinstalling, run `pier down && pier up` from the terminal you normally use.
 
 ## Configuration examples
 
