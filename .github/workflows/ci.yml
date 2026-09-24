@@ -4,19 +4,26 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: format
+        # Windows checkouts may convert line endings, which gofmt would report.
+        if: runner.os == 'Linux'
         run: |
           gofmt -w .
           test -z "$(git diff --name-only)"
