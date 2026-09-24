@@ -637,6 +637,9 @@ func (s *Service) Open(ctx context.Context, req OpenRequest) (OpenResult, error)
 	if err != nil {
 		return OpenResult{}, err
 	}
+	if strings.HasPrefix(url, "tcp://") {
+		return OpenResult{URL: url}, fmt.Errorf("%s is a TCP service, which a browser cannot open; connect to %s with its client, or pier copy %s", req.Service, strings.TrimPrefix(url, "tcp://"), req.Service)
+	}
 	if s.openURL != nil {
 		if err := s.openURL(ctx, url); err != nil {
 			return OpenResult{URL: url}, err
@@ -1186,7 +1189,7 @@ func localDomains(cfg config.Project, paused map[string]bool, saved []state.Loca
 	ports := map[string]int{}
 	taken := map[int]bool{}
 	for _, domain := range saved {
-		if domain.LANPort != 0 {
+		if domain.LANPort != 0 && !domain.TCP {
 			ports[domain.Service] = domain.LANPort
 			taken[domain.LANPort] = true
 		}
@@ -1196,8 +1199,12 @@ func localDomains(cfg config.Project, paused map[string]bool, saved []state.Loca
 		if service.Domain == "" || paused[service.Name] {
 			continue
 		}
-		domain := state.LocalDomain{Service: service.Name, Name: service.Domain, Target: service.Target}
-		if cfg.Local.LAN {
+		domain := state.LocalDomain{Service: service.Name, Name: service.Domain, Target: service.Target, TCP: service.TCP()}
+		if domain.TCP {
+			if cfg.Local.LAN {
+				domain.LANPort = int(service.HTTPSPort) // db.local:5432 is the listen port itself
+			}
+		} else if cfg.Local.LAN {
 			domain.LANPort = ports[service.Name]
 			if domain.LANPort == 0 {
 				domain.LANPort = nextLANPort(taken)

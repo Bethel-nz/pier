@@ -112,6 +112,9 @@ type LocalDomain struct {
 	Target  string `json:"target"`
 	// LANPort serves the service over plain HTTP on this machine's LAN
 	// address too, for devices that cannot resolve .local. 0 when local.lan
-	// is false.
+	// is false. For a TCP service it is the listen port, relayed raw.
 	LANPort int `json:"lanPort,omitempty"`
+	// TCP is set for a raw TCP service: the name resolves on the LAN and
+	// LANPort relays TCP, with no HTTPS proxy or certificate.
+	TCP bool `json:"tcp,omitempty"`
 }

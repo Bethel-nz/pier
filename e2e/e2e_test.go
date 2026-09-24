@@ -11,6 +11,7 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -35,12 +36,14 @@ func TestCoreLoop(t *testing.T) {
 	bin := t.TempDir()
 	pier := build(t, "../cmd/pier", filepath.Join(bin, "pier"))
 	server := build(t, "./testdata/server", filepath.Join(bin, "server"))
+	echo := build(t, "./testdata/echo", filepath.Join(bin, "echo"))
 
 	home := t.TempDir()
 	env := isolated(home)
 	project := t.TempDir()
-	port := freePort(t)
-	name := fmt.Sprintf("e2e-%d.local", time.Now().UnixNano()%1_000_000)
+	port, dbPort := freePort(t), freePort(t)
+	stamp := time.Now().UnixNano() % 1_000_000
+	name, dbName := fmt.Sprintf("e2e-%d.local", stamp), fmt.Sprintf("e2e-db-%d.local", stamp)
 	writeFile(t, filepath.Join(project, "pier.yaml"), fmt.Sprintf(`version: 1
 name: e2e
 services:
@@ -48,7 +51,12 @@ services:
     target: localhost:%d
     local: %s
     run: %q
-`, port, name, server))
+  db:
+    protocol: tcp
+    target: localhost:%d
+    local: %s
+    run: %q
+`, port, name, server, dbPort, dbName, echo))
 
 	run := func(args ...string) string {
 		t.Helper()
@@ -97,9 +105,15 @@ services:
 		t.Fatalf("%s answered %q, want %q", lanURL, got, body)
 	}
 
+	// The TCP service, relayed raw from this machine's LAN address.
+	tcpLAN := output.waitFor(t, regexp.MustCompile(`(?m)^lan\s+db\s+tcp://(\S+)`), 10*time.Second)
+	if reply := roundTrip(t, tcpLAN, "select 1"); reply != "echo select 1" {
+		t.Fatalf("TCP relay at %s answered %q", tcpLAN, reply)
+	}
+
 	// pier status sees the same thing.
-	if status := run("status", "--no-color"); !strings.Contains(status, localURL) || !strings.Contains(status, lanURL) {
-		t.Fatalf("pier status does not show both addresses:\n%s", status)
+	if status := run("status", "--no-color"); !strings.Contains(status, localURL) || !strings.Contains(status, lanURL) || !strings.Contains(status, "tcp://"+tcpLAN) {
+		t.Fatalf("pier status does not show every address:\n%s", status)
 	}
 
 	// Ctrl-C stops the app, and everything it started.
@@ -113,6 +127,7 @@ services:
 		t.Fatalf("pier up did not exit after Ctrl-C:\n%s", output)
 	}
 	waitClosed(t, fmt.Sprintf("127.0.0.1:%d", port), "the app")
+	waitClosed(t, fmt.Sprintf("127.0.0.1:%d", dbPort), "the TCP service")
 
 	// pier down withdraws the name; with no project left, the daemon exits and
 	// its ports close.
@@ -121,6 +136,7 @@ services:
 	}
 	waitClosed(t, "127.0.0.1:"+httpsPort, "the .local HTTPS port")
 	waitClosed(t, hostOf(t, lanURL), "the LAN port")
+	waitClosed(t, tcpLAN, "the TCP relay")
 
 	// pier clean removes the CA and the project's certificate.
 	run("clean", "--no-color")
@@ -273,6 +289,25 @@ func getHTTP(t *testing.T, raw string) string {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	return string(data)
+}
+
+// roundTrip sends one line to addr over TCP and returns the line it answers.
+func roundTrip(t *testing.T, addr, line string) string {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		t.Fatalf("dial %s: %v", addr, err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := fmt.Fprintln(conn, line); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read from %s: %v", addr, err)
+	}
+	return strings.TrimSpace(reply)
 }
 
 // waitClosed fails unless nothing answers at addr within a few seconds.

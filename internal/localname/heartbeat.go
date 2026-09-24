@@ -30,8 +30,11 @@ type NameStatus struct {
 	Target  string `json:"target"`
 	State   string `json:"state"`
 	Detail  string `json:"detail,omitempty"`
-	// LANPort is the plain-HTTP fallback port while it is open; 0 otherwise.
+	// LANPort is the plain-HTTP fallback port while it is open, or a TCP
+	// service's relayed port; 0 otherwise.
 	LANPort int `json:"lanPort,omitempty"`
+	// TCP is set for a raw TCP service, reached at name:port.
+	TCP bool `json:"tcp,omitempty"`
 }
 
 // Heartbeat is the daemon's view of itself, rewritten every second.
