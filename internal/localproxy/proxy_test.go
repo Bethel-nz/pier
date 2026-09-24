@@ -195,30 +195,6 @@ func TestWebSocketUpgradePassesThrough(t *testing.T) {
 	}
 }
 
-func TestListenFallsBackToTheNextPort(t *testing.T) {
-	busy, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer busy.Close()
-	busyPort := busy.Addr().(*net.TCPAddr).Port
-	free, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	freePort := free.Addr().(*net.TCPAddr).Port
-	free.Close()
-
-	listener, port, err := Listen([]int{busyPort, freePort})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	if port != freePort {
-		t.Fatalf("port = %d, want fallback %d", port, freePort)
-	}
-}
-
 func TestOriginIsTranslatedOnlyForSameOriginReads(t *testing.T) {
 	seen := make(chan string, 1)
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

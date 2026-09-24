@@ -77,6 +77,11 @@ type Responder struct {
 	self   map[string]bool
 
 	sendMu sync.Mutex
+
+	// sendErr is the last failed send, so a blocked network is reported, not silent.
+	errMu     sync.Mutex
+	sendErr   error
+	sendErrAt time.Time
 }
 
 // Listen opens the mDNS socket. It shares UDP 5353 with any system responder
@@ -298,7 +303,8 @@ func (r *Responder) answer(q query, src *net.UDPAddr, ifIndex int) {
 		return
 	}
 	if legacy || wantsUnicast(q) || !r.multicast {
-		_, _ = r.conn.WriteTo(packet, src)
+		_, err := r.conn.WriteTo(packet, src)
+		r.noteSend(err)
 		return
 	}
 	r.sendMulticast(packet, r.interfaceFor(src.IP, ifIndex))
@@ -421,7 +427,31 @@ func (r *Responder) sendMulticast(packet []byte, ifi *net.Interface) {
 			return
 		}
 	}
-	_, _ = r.pc.WriteTo(packet, nil, group)
+	_, err := r.pc.WriteTo(packet, nil, group)
+	r.noteSend(err)
+}
+
+// noteSend remembers a failed send; a later success clears it.
+func (r *Responder) noteSend(err error) {
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	if err == nil {
+		r.sendErr = nil
+		return
+	}
+	r.sendErr, r.sendErrAt = err, time.Now()
+}
+
+// SendError is the most recent send failure within the last minute, or nil.
+// Every send failing (for example "no route to host") usually means the
+// operating system is blocking Pier from the local network.
+func (r *Responder) SendError() error {
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	if r.sendErr == nil || time.Since(r.sendErrAt) > time.Minute {
+		return nil
+	}
+	return r.sendErr
 }
 
 func (r *Responder) snapshot() []netIface {

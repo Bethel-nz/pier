@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/certs"
@@ -20,7 +22,7 @@ import (
 )
 
 var (
-	httpsPorts = []int{443, 8443}
+	httpsPorts = []int{443, 8443, 10443}
 	httpPorts  = []int{80, 8080}
 )
 
@@ -103,37 +105,44 @@ type daemon struct {
 	proxy     *localproxy.Proxy
 	responder *mdns.Responder
 	servers   []*http.Server
+	listeners []*localproxy.Listeners
 	certs     map[string]loadedCert
 	caPEM     []byte
 	startup   []string // warnings found once at startup, such as a port fallback
 	beat      Heartbeat
 }
 
-// listen binds HTTPS (443, else 8443) on every interface, and HTTP (80, else
-// 8080) for redirects and the CA download.
+// listen binds HTTPS (443, else 8443, else 10443) and HTTP (80, else 8080)
+// for redirects and the CA download. A port another program holds on one
+// address (Tailscale Serve and Funnel) is shared by binding this machine's
+// own addresses instead.
 func (d *daemon) listen() error {
-	httpsListener, httpsPort, err := localproxy.Listen(httpsPorts)
-	if err != nil {
-		return fmt.Errorf("Pier could not open an HTTPS port for .local names: %w", err)
-	}
-	if httpsPort != 443 {
-		d.startup = append(d.startup, portHint(443, httpsPort))
-	}
-	d.beat.HTTPSPort = httpsPort
-	d.proxy.SetHTTPSPort(httpsPort)
 	secure := &http.Server{
 		Handler:           d.proxy.HTTPS(),
 		TLSConfig:         d.proxy.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          quietLog(),
 	}
-	go func() { _ = secure.ServeTLS(httpsListener, "", "") }()
+	httpsListeners, err := localproxy.Bind(httpsPorts, func(l net.Listener) {
+		go func() { _ = secure.ServeTLS(l, "", "") }()
+	})
+	if err != nil {
+		return fmt.Errorf("Pier could not open an HTTPS port for .local names: %w", err)
+	}
+	if httpsListeners.Port != 443 {
+		d.startup = append(d.startup, portHint(httpsListeners.Port, httpsListeners.Skipped))
+	}
+	d.listeners = append(d.listeners, httpsListeners)
+	d.beat.HTTPSPort = httpsListeners.Port
+	d.proxy.SetHTTPSPort(httpsListeners.Port)
 	d.servers = append(d.servers, secure)
 
-	if httpListener, httpPort, err := localproxy.Listen(httpPorts); err == nil {
-		d.beat.HTTPPort = httpPort
-		plain := &http.Server{Handler: d.proxy.HTTP(), ReadHeaderTimeout: 10 * time.Second, ErrorLog: quietLog()}
-		go func() { _ = plain.Serve(httpListener) }()
+	plain := &http.Server{Handler: d.proxy.HTTP(), ReadHeaderTimeout: 10 * time.Second, ErrorLog: quietLog()}
+	if httpListeners, err := localproxy.Bind(httpPorts, func(l net.Listener) {
+		go func() { _ = plain.Serve(l) }()
+	}); err == nil {
+		d.listeners = append(d.listeners, httpListeners)
+		d.beat.HTTPPort = httpListeners.Port
 		d.servers = append(d.servers, plain)
 	}
 	return nil
@@ -150,6 +159,9 @@ func (d *daemon) closeServers() {
 // reconcile matches the proxy, certificates, and mDNS names to saved state,
 // then writes the heartbeat. It reports whether any name is being served.
 func (d *daemon) reconcile(now time.Time) bool {
+	for _, listeners := range d.listeners {
+		listeners.Refresh() // follow Wi-Fi changes when a port is shared per address
+	}
 	warnings := append([]string(nil), d.startup...)
 	saved, err := d.projects.List()
 	if err != nil {
@@ -190,6 +202,9 @@ func (d *daemon) reconcile(now time.Time) bool {
 		d.responder.SetNames(names)
 		for _, status := range d.responder.Statuses() {
 			mdnsState[status.Name] = status
+		}
+		if err := d.responder.SendError(); err != nil {
+			warnings = append(warnings, blockedHint(err))
 		}
 	}
 	for i := range statuses {
@@ -254,10 +269,27 @@ func (d *daemon) refreshCA() {
 	d.proxy.SetCA(contents)
 }
 
-func portHint(wanted, got int) string {
-	hint := fmt.Sprintf("port %d was unavailable, so .local URLs use port %d", wanted, got)
-	if exe, err := os.Executable(); err == nil && runtime.GOOS == "linux" {
-		hint += fmt.Sprintf(". To use %d, run: sudo setcap cap_net_bind_service=+ep %s", wanted, exe)
+// blockedHint explains an mDNS send failure: other devices cannot resolve names.
+func blockedHint(err error) string {
+	hint := "other devices cannot resolve .local names: Pier's mDNS answers fail to send (" + err.Error() + ")"
+	if runtime.GOOS == "darwin" {
+		hint += ". macOS is likely blocking Pier from the local network: in System Settings → Privacy & Security → Local Network, turn on the terminal app you ran pier up from, then run pier down and pier up from that terminal"
+	}
+	return hint
+}
+
+// portHint explains why .local URLs carry a port, with the fix for each cause.
+func portHint(got int, skipped []error) string {
+	hint := fmt.Sprintf("port 443 was unavailable, so .local URLs use port %d", got)
+	for _, err := range skipped {
+		switch {
+		case errors.Is(err, syscall.EACCES):
+			if exe, exeErr := os.Executable(); exeErr == nil && runtime.GOOS == "linux" {
+				return hint + fmt.Sprintf(". To use 443, run: sudo setcap cap_net_bind_service=+ep %s", exe)
+			}
+		case errors.Is(err, syscall.EADDRINUSE):
+			return hint + ". Another program holds 443 on every address; Tailscale Funnel does. Run pier down in the project that shares it, or turn Funnel off, then pier up"
+		}
 	}
 	return hint
 }

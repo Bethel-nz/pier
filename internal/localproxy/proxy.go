@@ -4,7 +4,6 @@ package localproxy
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -278,18 +277,4 @@ func isLoopback(remote string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-// Listen binds the first free port in ports on every interface.
-// It returns the port it got so URLs can include it when it is not the default.
-func Listen(ports []int) (net.Listener, int, error) {
-	var errs []error
-	for _, port := range ports {
-		listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
-		if err == nil {
-			return listener, port, nil
-		}
-		errs = append(errs, fmt.Errorf("port %d: %w", port, err))
-	}
-	return nil, 0, errors.Join(errs...)
 }
