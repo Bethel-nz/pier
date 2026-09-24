@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 // State is the lifecycle of one published name.
@@ -61,12 +62,18 @@ type entry struct {
 type netIface struct {
 	ifi   net.Interface
 	addrs []*net.IPNet
+	v6    []net.IP // only used to recognize our own IPv6 packets
 }
 
 // Responder publishes names over multicast DNS.
 type Responder struct {
-	conn      net.PacketConn
-	pc        *ipv4.PacketConn
+	conn net.PacketConn
+	pc   *ipv4.PacketConn
+	// conn6 and pc6 serve mDNS over IPv6 (ff02::fb). Some routers drop IPv4
+	// multicast between Wi-Fi clients but pass IPv6, so phones only reach
+	// Pier this way. They are nil when IPv6 is unavailable.
+	conn6     net.PacketConn
+	pc6       *ipv6.PacketConn
 	multicast bool
 	control   bool
 	interval  time.Duration
@@ -115,9 +122,23 @@ func Listen(opts Options) (*Responder, error) {
 	if multicast {
 		_ = r.pc.SetMulticastLoopback(true)
 		_ = r.pc.SetMulticastTTL(255)
+		r.listen6(config)
 	}
 	r.refreshInterfaces()
 	return r, nil
+}
+
+// listen6 opens [::]:5353 as well. Failing is not fatal: IPv4 still works.
+func (r *Responder) listen6(config net.ListenConfig) {
+	conn, err := config.ListenPacket(context.Background(), "udp6", "[::]:5353")
+	if err != nil {
+		return
+	}
+	r.conn6 = conn
+	r.pc6 = ipv6.NewPacketConn(conn)
+	_ = r.pc6.SetControlMessage(ipv6.FlagInterface, true)
+	_ = r.pc6.SetMulticastLoopback(true)
+	_ = r.pc6.SetMulticastHopLimit(255)
 }
 
 // LocalAddr is the bound socket address.
@@ -167,6 +188,12 @@ func (r *Responder) Statuses() []Status {
 func (r *Responder) Serve(ctx context.Context) error {
 	done := make(chan error, 1)
 	go func() { done <- r.readLoop() }()
+	done6 := make(chan struct{})
+	if r.pc6 != nil {
+		go func() { r.readLoop6(); close(done6) }()
+	} else {
+		close(done6)
+	}
 
 	tick := time.NewTicker(r.interval)
 	defer tick.Stop()
@@ -177,7 +204,11 @@ func (r *Responder) Serve(ctx context.Context) error {
 		case <-ctx.Done():
 			r.goodbyeAll()
 			_ = r.conn.Close()
+			if r.conn6 != nil {
+				_ = r.conn6.Close()
+			}
 			<-done
+			<-done6
 			return nil
 		case err := <-done:
 			return err
@@ -259,7 +290,45 @@ func (r *Responder) readLoop() error {
 			r.observe(q, udp)
 			continue
 		}
-		r.answer(q, udp, ifIndex)
+		r.answer(q, udp, ifIndex, false)
+	}
+}
+
+// readLoop6 answers queries that arrive over IPv6. The answer is still the
+// IPv4 address: an mDNS record does not have to match the transport.
+func (r *Responder) readLoop6() {
+	buf := make([]byte, 9000)
+	for {
+		n, cm, src, err := r.pc6.ReadFrom(buf)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			continue
+		}
+		udp, ok := src.(*net.UDPAddr)
+		if !ok {
+			continue
+		}
+		q, err := parse(buf[:n])
+		if err != nil {
+			continue
+		}
+		ifIndex := 0
+		if cm != nil {
+			ifIndex = cm.IfIndex
+		}
+		if ifIndex == 0 && udp.Zone != "" {
+			// Windows has no control messages; a link-local source names its interface.
+			if ifi, err := net.InterfaceByName(udp.Zone); err == nil {
+				ifIndex = ifi.Index
+			}
+		}
+		if q.response {
+			r.observe(q, udp)
+			continue
+		}
+		r.answer(q, udp, ifIndex, true)
 	}
 }
 
@@ -288,7 +357,7 @@ func (r *Responder) observe(q query, src *net.UDPAddr) {
 // conflictRetry is how long a name stays in Conflict before Pier probes again.
 const conflictRetry = 30 * time.Second
 
-func (r *Responder) answer(q query, src *net.UDPAddr, ifIndex int) {
+func (r *Responder) answer(q query, src *net.UDPAddr, ifIndex int, v6 bool) {
 	local := r.addressFor(src.IP, ifIndex)
 	if local == nil {
 		return
@@ -303,11 +372,21 @@ func (r *Responder) answer(q query, src *net.UDPAddr, ifIndex int) {
 		return
 	}
 	if legacy || wantsUnicast(q) || !r.multicast {
-		_, err := r.conn.WriteTo(packet, src)
+		conn := r.conn
+		if v6 {
+			conn = r.conn6
+		}
+		_, err := conn.WriteTo(packet, src)
 		r.noteSend(err)
 		return
 	}
-	r.sendMulticast(packet, r.interfaceFor(src.IP, ifIndex))
+	// Reply on the transport the query used: that is the one the network delivers.
+	ifi := r.interfaceFor(src.IP, ifIndex)
+	if v6 {
+		r.send6(packet, ifi)
+		return
+	}
+	r.send4(packet, ifi)
 }
 
 func (r *Responder) owns(name string) bool {
@@ -416,7 +495,14 @@ func (r *Responder) goodbyeAll() {
 	}
 }
 
+// sendMulticast sends to both mDNS groups, so a network that drops one
+// family of multicast still carries the other.
 func (r *Responder) sendMulticast(packet []byte, ifi *net.Interface) {
+	r.send4(packet, ifi)
+	r.send6(packet, ifi)
+}
+
+func (r *Responder) send4(packet []byte, ifi *net.Interface) {
 	if !r.multicast {
 		return
 	}
@@ -429,6 +515,20 @@ func (r *Responder) sendMulticast(packet []byte, ifi *net.Interface) {
 	}
 	_, err := r.pc.WriteTo(packet, nil, group)
 	r.noteSend(err)
+}
+
+var group6 = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
+
+func (r *Responder) send6(packet []byte, ifi *net.Interface) {
+	if !r.multicast || r.pc6 == nil || ifi == nil {
+		return // link-local multicast needs an interface
+	}
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
+	if err := r.pc6.SetMulticastInterface(ifi); err != nil {
+		return
+	}
+	_, _ = r.pc6.WriteTo(packet, nil, group6) // IPv4 errors already report a blocked network
 }
 
 // noteSend remembers a failed send; a later success clears it.
@@ -473,6 +573,9 @@ func (r *Responder) refreshInterfaces() {
 		for _, addr := range iface.addrs {
 			self[addr.IP.String()] = true
 		}
+		for _, ip := range iface.v6 {
+			self[ip.String()] = true // our own IPv6 announcements are not conflicts
+		}
 	}
 	r.mu.Lock()
 	previous := r.ifaces
@@ -482,12 +585,18 @@ func (r *Responder) refreshInterfaces() {
 			if _, ok := previous[index]; !ok {
 				ifi := iface.ifi
 				_ = r.pc.JoinGroup(&ifi, &net.UDPAddr{IP: group.IP})
+				if r.pc6 != nil {
+					_ = r.pc6.JoinGroup(&ifi, &net.UDPAddr{IP: group6.IP})
+				}
 			}
 		}
 		for index, iface := range previous {
 			if _, ok := found[index]; !ok {
 				ifi := iface.ifi
 				_ = r.pc.LeaveGroup(&ifi, &net.UDPAddr{IP: group.IP})
+				if r.pc6 != nil {
+					_ = r.pc6.LeaveGroup(&ifi, &net.UDPAddr{IP: group6.IP})
+				}
 			}
 		}
 	}
@@ -521,15 +630,22 @@ func lanInterfaces() map[int]netIface {
 			continue
 		}
 		var nets []*net.IPNet
+		var v6 []net.IP
 		for _, addr := range addrs {
 			ipNet, ok := addr.(*net.IPNet)
-			if !ok || ipNet.IP.To4() == nil || !usableIPv4(ipNet.IP) {
+			if !ok {
 				continue
 			}
-			nets = append(nets, &net.IPNet{IP: ipNet.IP.To4(), Mask: ipNet.Mask})
+			if ipNet.IP.To4() == nil {
+				v6 = append(v6, ipNet.IP)
+				continue
+			}
+			if usableIPv4(ipNet.IP) {
+				nets = append(nets, &net.IPNet{IP: ipNet.IP.To4(), Mask: ipNet.Mask})
+			}
 		}
 		if len(nets) > 0 {
-			out[ifi.Index] = netIface{ifi: ifi, addrs: nets}
+			out[ifi.Index] = netIface{ifi: ifi, addrs: nets, v6: v6}
 		}
 	}
 	return out
