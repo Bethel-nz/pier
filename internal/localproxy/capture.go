@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/capture"
@@ -12,8 +13,9 @@ import (
 
 // captureTo hands every finished request to recorder, bodies capped at
 // capture.MaxBody. WebSockets pass through unrecorded: they are streams, not
-// requests Pier could send again.
-func captureTo(recorder Recorder, service string, next http.Handler) http.Handler {
+// requests Pier could send again. Behind a tap, the client and host are the
+// ones tailscaled forwarded, not tailscaled itself.
+func captureTo(recorder Recorder, service string, tap bool, next http.Handler) http.Handler {
 	if recorder == nil {
 		return next
 	}
@@ -35,12 +37,21 @@ func captureTo(recorder Recorder, service string, next http.Handler) http.Handle
 		if err != nil {
 			client = r.RemoteAddr
 		}
+		host := normalizeHost(r.Host)
+		if tap {
+			if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
+				host = normalizeHost(forwarded)
+			}
+			if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+				client = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			}
+		}
 		status := response.status
 		if status == 0 {
 			status = http.StatusOK
 		}
 		recorder.Record(capture.Exchange{
-			Time: start, Service: service, Host: normalizeHost(r.Host), Method: r.Method, URL: r.URL.RequestURI(),
+			Time: start, Service: service, Host: host, Method: r.Method, URL: r.URL.RequestURI(),
 			Client: client, Duration: time.Since(start),
 			RequestHeader: header, RequestBody: request.buf.Bytes(), RequestTruncated: request.truncated,
 			Status: status, ResponseHeader: response.header, ResponseBody: response.body.buf.Bytes(), ResponseTruncated: response.body.truncated,

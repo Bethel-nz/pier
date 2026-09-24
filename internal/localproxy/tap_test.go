@@ -57,6 +57,9 @@ func TestTapCapturesAndKeepsForwardedHeaders(t *testing.T) {
 		t.Fatalf("captured %d exchanges", len(recorder.exchanges))
 	}
 	e := recorder.exchanges[0]
+	if e.Client != "203.0.113.9" {
+		t.Fatalf("captured client %q, want the one tailscaled forwarded", e.Client)
+	}
 	if e.Service != "hooks" || e.Method != "POST" || e.URL != "/hooks/stripe?id=1" || string(e.RequestBody) != `{"paid":true}` ||
 		e.RequestHeader.Get("Stripe-Signature") != "v1=abc" || e.Status != http.StatusAccepted ||
 		string(e.ResponseBody) != `got {"paid":true}` || e.ResponseHeader.Get("X-Reply") != "yes" {

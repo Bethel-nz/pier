@@ -44,6 +44,8 @@ services:
 | `services.<name>.dir` | Folder `run` starts in, relative to the project root |
 | `services.<name>.env` | Extra environment variables for `run` |
 | `services.<name>.watch` | Globs, relative to `dir`, whose changes restart `run` |
+| `services.<name>.throttle` | Slow the service to `slow-3g`, `3g`, `4g`, or `{latency, down, up}` |
+| `services.<name>.capture` | Keep the service's requests this long for `pier replay`, such as `24h` |
 
 v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 
@@ -79,6 +81,48 @@ services:
 `watch` restarts the command when a matching file is added, changed, or removed. `**` spans any number of folders. `.git`, `node_modules`, and `.pier` are skipped unless a glob names them. Dev servers with their own hot reload (Vite, Next.js) don't need `watch`.
 
 A second `pier up` in the same project updates routes without starting the commands again.
+
+## Throttle and capture
+
+```yaml
+services:
+  web:
+    target: localhost:3000
+    throttle: 3g                      # or slow-3g, 4g
+  api:
+    target: localhost:8080
+    throttle: {latency: 300ms, down: 1.5mbit, up: 750kbit}
+  hooks:
+    target: localhost:8787
+    path: /hooks
+    public: true
+    capture: 24h
+```
+
+| Preset | Latency | Down | Up |
+| --- | --- | --- | --- |
+| `slow-3g` | 2 s | 400 kbit/s | 400 kbit/s |
+| `3g` | 560 ms | 1.6 Mbit/s | 750 kbit/s |
+| `4g` | 170 ms | 9 Mbit/s | 1.5 Mbit/s |
+
+Latency is added once per request. Bandwidth paces request and response bodies. WebSocket messages are not slowed.
+
+`capture` keeps each request and its response: method, path, headers, and up to 1 MB of each body, in `.pier/capture.db` (SQLite, gitignored with `.pier/`). `Authorization`, `Cookie`, `Set-Cookie`, and `Proxy-Authorization` are stored as `[redacted]`. Requests older than `capture` are deleted every minute, and all of a service's requests go once its `capture` is removed. `pier clean` deletes every project's capture file.
+
+Both need Pier to see the traffic. Tailscale sends requests straight to the service, so a throttled or captured service gets a tap: a loopback port in Pier's background process that Tailscale Serve and Funnel point at instead. The tap applies the throttle and capture, then forwards to `target` with Tailscale's `X-Forwarded-*` headers intact. The service's `.local` name goes through the same throttle and capture. Tap ports are saved and reused, so repeated `pier up` runs don't move Tailscale routes.
+
+### Replay
+
+```sh
+pier replay                   # newest captured requests
+pier replay 42                # send #42 to its service again; prints 500 → 200 and the new body
+pier replay 42 43             # several, in the order given
+pier replay --since 10m       # everything from the last 10 minutes, oldest first
+pier replay --service hooks   # only one service (with a list or --since)
+pier replay 42 --show         # print the request and its answer instead of sending
+```
+
+A replay goes straight to the service's current `target`, not through Tailscale or its tap, so it is neither throttled nor captured again. It carries `X-Pier-Replay: <id>` and the original `X-Forwarded-Host`. Redacted headers are left out, so a request that needed `Authorization` has to be allowed some other way while you test. Webhook signatures such as `Stripe-Signature` are kept, though a provider that signs timestamps may reject a replay once its tolerance window passes.
 
 ## Listeners
 

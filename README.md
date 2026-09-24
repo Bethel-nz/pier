@@ -164,6 +164,7 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 | `pier open <service> [--local]` | Open the current Tailscale URL, or the `.local` URL |
 | `pier copy <service> [--local]` | Copy the current Tailscale URL, or the `.local` URL |
 | `pier trust [--remove]` | Trust Pier's local CA again, or remove it (`pier up` trusts it for you) |
+| `pier replay [id...]` | List requests kept by `capture:`, or send them to the service again (`--since 10m`, `--show`) |
 | `pier` / `pier tui` | Interactive management interface |
 
 Global flags: `--config`, `--json`, `--verbose`, `--no-color`.

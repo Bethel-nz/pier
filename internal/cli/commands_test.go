@@ -45,6 +45,10 @@ func (f *fakeApp) Machine(context.Context) (app.MachineResult, error) {
 
 func (f *fakeApp) RunPlan(string) (app.RunPlan, error) { return app.RunPlan{}, nil }
 
+func (f *fakeApp) Targets(string) (project.Context, map[string]string, error) {
+	return project.Context{}, nil, nil
+}
+
 func (f *fakeApp) Validate(context.Context, app.ValidateRequest) (app.ValidateResult, error) {
 	return f.validate, f.validateErr
 }

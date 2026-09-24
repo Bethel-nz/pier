@@ -8,6 +8,7 @@ import (
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/localname"
+	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/tailscale"
 	"github.com/Bethel-nz/pier/internal/tui"
@@ -30,6 +31,7 @@ type App interface {
 	Copy(ctx context.Context, req app.CopyRequest) (app.CopyResult, error)
 	Machine(ctx context.Context) (app.MachineResult, error)
 	RunPlan(start string) (app.RunPlan, error)
+	Targets(start string) (project.Context, map[string]string, error)
 }
 
 type runtime struct {
@@ -118,6 +120,7 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		newTrustCommand(rt),
 		newQRCommand(rt),
 		newCleanCommand(rt),
+		newReplayCommand(rt),
 		newLocaldCommand(),
 	)
 	if local != nil {

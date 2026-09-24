@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Bethel-nz/pier/internal/capture"
 	"github.com/Bethel-nz/pier/internal/certs"
 )
 
@@ -16,8 +17,10 @@ type CleanReport struct {
 	Untrusted     string   `json:"untrusted,omitempty"`
 	RemovedCA     string   `json:"removedCA,omitempty"`
 	RemovedCerts  []string `json:"removedCerts,omitempty"`
-	ClearedNames  []string `json:"clearedNames,omitempty"`
-	Errors        []string `json:"errors,omitempty"`
+	// RemovedCaptures are capture files: requests kept for pier replay.
+	RemovedCaptures []string `json:"removedCaptures,omitempty"`
+	ClearedNames    []string `json:"clearedNames,omitempty"`
+	Errors          []string `json:"errors,omitempty"`
 }
 
 // runtimeFiles are the daemon's files, plus the ones the first local-names
@@ -61,6 +64,15 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 				} else {
 					report.RemovedCerts = append(report.RemovedCerts, dir)
 				}
+			}
+			db := capture.PathFor(project.Path)
+			if _, statErr := os.Stat(db); statErr == nil {
+				for _, file := range []string{db, db + "-wal", db + "-shm"} {
+					if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+						fail("remove "+file, err)
+					}
+				}
+				report.RemovedCaptures = append(report.RemovedCaptures, db)
 			}
 		}
 		if len(project.Domains) == 0 {

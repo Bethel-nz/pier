@@ -35,6 +35,19 @@ func (s *Service) RunPlan(start string) (RunPlan, error) {
 	return plan, nil
 }
 
+// Targets maps each service to its loopback URL, the address replays go to.
+func (s *Service) Targets(start string) (project.Context, map[string]string, error) {
+	loaded, err := s.loadProject(start, true)
+	if err != nil {
+		return loaded.project, nil, err
+	}
+	targets := make(map[string]string, len(loaded.cfg.Services))
+	for _, service := range loaded.cfg.Services {
+		targets[service.Name] = service.Target
+	}
+	return loaded.project, targets, nil
+}
+
 // process sets PORT to the target's port, since most dev servers read it,
 // unless env sets it.
 func process(root string, service config.ResolvedService) runner.Process {

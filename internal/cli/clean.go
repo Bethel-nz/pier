@@ -60,10 +60,14 @@ func writeClean(rt *runtime, report localname.CleanReport) {
 	for _, dir := range report.RemovedCerts {
 		line("removed      %s", dir)
 	}
+	for _, db := range report.RemovedCaptures {
+		line("removed      %s (captured requests)", db)
+	}
 	if len(report.ClearedNames) > 0 {
 		line("forgot       %s", strings.Join(report.ClearedNames, ", "))
 	}
-	if !report.StoppedDaemon && report.Untrusted == "" && report.RemovedCA == "" && len(report.RemovedCerts) == 0 && len(report.ClearedNames) == 0 {
+	if !report.StoppedDaemon && report.Untrusted == "" && report.RemovedCA == "" && len(report.RemovedCerts) == 0 &&
+		len(report.RemovedCaptures) == 0 && len(report.ClearedNames) == 0 {
 		line("nothing to clean")
 	}
 	line("Tailscale routes are unchanged; run pier down in a project to remove them.")

@@ -53,7 +53,7 @@ func (p *Proxy) build(r Route) (*route, error) {
 		return nil, fmt.Errorf("invalid target %q for %s", r.Target, r.Service)
 	}
 	built := &route{Route: r, target: target}
-	built.handler = shape(r.Shaping, captureTo(r.Capture, r.Service, p.reverseProxy(built)))
+	built.handler = shape(r.Shaping, captureTo(r.Capture, r.Service, r.Host == "", p.reverseProxy(built)))
 	return built, nil
 }
 
