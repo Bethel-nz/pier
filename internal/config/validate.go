@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -72,6 +73,7 @@ func Validate(project Project) []ValidationError {
 				claimedDomains[service.Domain] = service.Name
 			}
 		}
+		errors = append(errors, runErrors(service)...)
 	}
 	if (project.Local.CertFile == "") != (project.Local.KeyFile == "") {
 		errors = append(errors, ValidationError{Field: "local.tls", Message: "needs both cert and key"})
@@ -86,6 +88,37 @@ func Validate(project Project) []ValidationError {
 		}
 		return errors[i].Message < errors[j].Message
 	})
+	return errors
+}
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func runErrors(service ResolvedService) []ValidationError {
+	var errors []ValidationError
+	run := service.Run
+	if run.Command == "" {
+		for field, set := range map[string]bool{"dir": run.Dir != "", "env": len(run.Env) > 0, "watch": len(run.Watch) > 0} {
+			if set {
+				errors = append(errors, serviceError(service.Name, field, "needs run"))
+			}
+		}
+		return errors
+	}
+	if filepath.IsAbs(run.Dir) || strings.HasPrefix(filepath.ToSlash(filepath.Clean(run.Dir)), "../") {
+		errors = append(errors, serviceError(service.Name, "dir", "must be a folder inside the project"))
+	}
+	for name := range run.Env {
+		if !envName.MatchString(name) {
+			errors = append(errors, serviceError(service.Name, "env", fmt.Sprintf("%q is not a valid variable name", name)))
+		}
+	}
+	for _, pattern := range run.Watch {
+		if pattern == "" || path.IsAbs(pattern) || strings.HasPrefix(pattern, "../") {
+			errors = append(errors, serviceError(service.Name, "watch", fmt.Sprintf("%q must be a glob inside dir", pattern)))
+		} else if _, err := path.Match(strings.ReplaceAll(pattern, "**", "*"), ""); err != nil {
+			errors = append(errors, serviceError(service.Name, "watch", fmt.Sprintf("%q is not a valid glob", pattern)))
+		}
+	}
 	return errors
 }
 

@@ -40,6 +40,10 @@ services:
 | `services.<name>.public` | Optional per-service override of `defaults.public` |
 | `services.<name>.protocol` | Optional per-service `http` or `https` |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
+| `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
+| `services.<name>.dir` | Folder `run` starts in, relative to the project root |
+| `services.<name>.env` | Extra environment variables for `run` |
+| `services.<name>.watch` | Globs, relative to `dir`, whose changes restart `run` |
 
 v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 
@@ -50,6 +54,31 @@ v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 - [`public-webhook.yaml`](../examples/configs/public-webhook.yaml) keeps the main app private while exposing only a webhook through Funnel.
 - [`local-domains.yaml`](../examples/configs/local-domains.yaml) serves `.local` HTTPS names on the LAN alongside private Tailscale URLs.
 - [`bun-server`](../examples/bun-server/) is a runnable local demo and remains private by default.
+
+## Running services
+
+`run` is optional. Without it, Pier routes to whatever already listens on `target`. With it, `pier up` starts the commands and stays in the foreground like `docker compose up`, then:
+
+1. Pier starts each command through the shell (`sh -c`, or `cmd /c` on Windows) in `dir`, with `PORT` set to the target's port unless `env` sets it.
+2. It waits up to 60 seconds for every target to accept connections, then applies routes and prints the service table.
+3. Output streams under each service's name. A command that exits is reported and not restarted, so a crash never scrolls its own error away.
+4. Ctrl-C stops every command and everything it started. Routes stay until `pier down`, and meanwhile `.local` names show Pier's "not responding" page.
+
+```yaml
+services:
+  api:
+    target: localhost:8080
+    run: go run ./cmd/api
+    watch: ["**/*.go", "templates/*.html"]
+  web:
+    target: localhost:3000
+    run: bun run dev
+    dir: web
+```
+
+`watch` restarts the command when a matching file is added, changed, or removed. `**` spans any number of folders. `.git`, `node_modules`, and `.pier` are skipped unless a glob names them. Dev servers with their own hot reload (Vite, Next.js) don't need `watch`.
+
+A second `pier up` in the same project updates routes without starting the commands again.
 
 ## Listeners
 

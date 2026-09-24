@@ -152,7 +152,7 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 | `pier init [name]` | Create a minimal `pier.yaml` and `.pier/id` |
 | `pier validate` | Schema and semantic checks without requiring services to run |
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
-| `pier up` | Validate, check Tailscale, plan, apply, verify, persist ownership, print URLs |
+| `pier up` | Start `run:` commands, then validate, check Tailscale, plan, apply, verify, persist ownership, print URLs |
 | `pier down` | Remove only routes owned by this Pier project |
 | `pier status [--all]` | Show what Tailscale actually serves for each service, how long anything has been PUBLIC, and what differs from `pier.yaml`; `--all` lists every route on this machine |
 | `pier doctor` | Diagnose config, Tailscale, and local targets |

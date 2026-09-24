@@ -14,6 +14,9 @@ services:
   api:
     target: localhost:4000
     path: /api
+    # Optional: pier up starts this and restarts it when a .go file changes.
+    run: go run ./cmd/api
+    watch: ["**/*.go"]
 
   webhook:
     target: localhost:8787

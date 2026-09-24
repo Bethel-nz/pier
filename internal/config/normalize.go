@@ -66,6 +66,12 @@ func Normalize(cfg Config) (Project, error) {
 			Protocol:  Protocol(protocol),
 			Public:    public,
 			Domain:    normalizeDomain(service.Domain),
+			Run: Run{
+				Command: strings.TrimSpace(service.Run),
+				Dir:     strings.TrimSpace(service.Dir),
+				Env:     service.Env,
+				Watch:   service.Watch,
+			},
 		})
 	}
 

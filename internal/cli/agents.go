@@ -38,6 +38,7 @@ services:
 - protocol is http or https and describes the local upstream.
 - public: false uses Tailscale Serve for tailnet-only access. public: true uses Tailscale Funnel and exposes the service to the internet. Keep it false unless the user explicitly requests public access.
 - local is optional and must end in .local, such as web.project-name.local. pier up then serves it over HTTPS to every device on the same network, with a certificate Pier issues. Add it only when the user wants LAN or phone access.
+- run is optional: the command that starts the service, such as "bun run dev". pier up then starts it with PORT set to the target port and streams its output until Ctrl-C. dir sets its folder, env adds variables, and watch lists globs, such as "**/*.go", whose changes restart it. Add run only when the user wants Pier to start their apps; skip watch for dev servers with their own hot reload.
 
 Reference configurations: https://github.com/Bethel-nz/pier/tree/main/examples/configs
 

@@ -29,6 +29,7 @@ type App interface {
 	Open(ctx context.Context, req app.OpenRequest) (app.OpenResult, error)
 	Copy(ctx context.Context, req app.CopyRequest) (app.CopyResult, error)
 	Machine(ctx context.Context) (app.MachineResult, error)
+	RunPlan(start string) (app.RunPlan, error)
 }
 
 type runtime struct {

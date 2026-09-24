@@ -40,6 +40,14 @@ type Service struct {
 	// Domain is the optional `local:` name, such as my-app.local, that pier up
 	// serves over HTTPS to every device on the local network.
 	Domain string `yaml:"local"`
+	// Run is an optional shell command pier up starts and keeps running.
+	Run string `yaml:"run"`
+	// Dir is where Run starts, relative to the project root.
+	Dir string `yaml:"dir"`
+	// Env adds variables for Run. PORT defaults to the target's port.
+	Env map[string]string `yaml:"env"`
+	// Watch restarts Run when a file matching one of these globs changes.
+	Watch []string `yaml:"watch"`
 }
 
 // Protocol is the supported local proxy protocol.
@@ -78,4 +86,13 @@ type ResolvedService struct {
 	Protocol  Protocol
 	Public    bool
 	Domain    string
+	Run       Run
+}
+
+// Run is how Pier starts a service. Command is empty when Pier does not run it.
+type Run struct {
+	Command string
+	Dir     string // relative to the project root
+	Env     map[string]string
+	Watch   []string
 }

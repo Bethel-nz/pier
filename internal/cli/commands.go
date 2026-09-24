@@ -137,10 +137,9 @@ func newUpCommand(rt *runtime) *cobra.Command {
 	var force, strict bool
 	cmd := &cobra.Command{
 		Use:   "up",
-		Short: "Apply the project plan to Tailscale Serve and Funnel",
+		Short: "Start run: commands, then serve every service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := rt.app.Up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict})
-			return rt.renderer("up").Up(result, err)
+			return rt.up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict})
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "take over unmanaged routes")
