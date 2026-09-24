@@ -109,6 +109,9 @@ func TestFailedTemporaryWriteLeavesPreviousStateReadable(t *testing.T) {
 
 func TestSavedStatePermissionsDenyGroupAndWorldWrites(t *testing.T) {
 	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix mode bits; access is controlled by ACLs")
+	}
 	store := New(dir)
 	projectID := "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff"
 	if err := store.Save(ProjectState{

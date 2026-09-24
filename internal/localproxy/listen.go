@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // Listeners serve one port for the local proxy.
@@ -102,7 +103,14 @@ func (l *Listeners) bindAddresses(want []string) bool {
 		if _, ok := l.bound[addr]; ok {
 			continue
 		}
-		listener, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(l.Port)))
+		hostPort := net.JoinHostPort(addr, strconv.Itoa(l.Port))
+		// macOS and Windows let a specific address be bound over another
+		// program's wildcard listener, and the specific one then takes its
+		// traffic. Something already answering here is someone else's.
+		if answers(hostPort) {
+			continue
+		}
+		listener, err := net.Listen("tcp", hostPort)
 		if err != nil {
 			continue
 		}
@@ -112,6 +120,16 @@ func (l *Listeners) bindAddresses(want []string) bool {
 	_, loopback := l.bound["127.0.0.1"]
 	lan := len(l.bound) - boolInt(loopback)
 	return loopback && (lan > 0 || len(want) == 1)
+}
+
+// answers reports whether something accepts connections at hostPort.
+func answers(hostPort string) bool {
+	conn, err := net.DialTimeout("tcp", hostPort, 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func boolInt(b bool) int {

@@ -203,7 +203,8 @@ func TestCopyLocalReturnsTheServedURL(t *testing.T) {
 func TestUpSavesLocalSettingsWithAbsoluteCertPaths(t *testing.T) {
 	env := domainEnv()
 	lan := false
-	env.raw.Local = config.LocalSettings{LAN: &lan, Autostart: true, TLS: &config.TLSFiles{Cert: "certs/dev.pem", Key: "/etc/dev-key.pem"}}
+	key := filepath.Join(t.TempDir(), "dev-key.pem") // absolute on every OS, unlike /etc/…
+	env.raw.Local = config.LocalSettings{LAN: &lan, Autostart: true, TLS: &config.TLSFiles{Cert: "certs/dev.pem", Key: key}}
 	local := &fakeLocal{report: liveReport("myapp.local", "api.myapp.local")}
 	svc := env.service()
 	svc.EnableLocalNames(local)
@@ -213,7 +214,7 @@ func TestUpSavesLocalSettingsWithAbsoluteCertPaths(t *testing.T) {
 	}
 	want := state.LocalSettings{
 		ThisMachineOnly: true, Autostart: true,
-		CertFile: filepath.Join(env.project.Root, "certs/dev.pem"), KeyFile: "/etc/dev-key.pem",
+		CertFile: filepath.Join(env.project.Root, "certs/dev.pem"), KeyFile: key,
 	}
 	if env.saved == nil || env.saved.Local != want || local.settings != want {
 		t.Fatalf("saved %+v, synced %+v, want %+v", env.saved.Local, local.settings, want)

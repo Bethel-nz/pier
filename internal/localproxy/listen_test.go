@@ -3,6 +3,7 @@ package localproxy
 import (
 	"net"
 	"reflect"
+	"runtime"
 	"strconv"
 	"testing"
 )
@@ -64,6 +65,14 @@ func TestBindSharesAPortHeldOnOneAddress(t *testing.T) {
 		t.Fatalf("Bind() = %v, want the port shared", err)
 	}
 	defer l.Close()
+	if runtime.GOOS == "windows" && !l.PerAddress {
+		// Windows lets a wildcard bind beside a specific one; the other
+		// program keeps its own address, so the port is shared all the same.
+		if !answers("127.0.0.3:" + strconv.Itoa(port)) {
+			t.Fatal("the other program lost its address")
+		}
+		return
+	}
 	if !l.PerAddress || !reflect.DeepEqual(l.Addresses(), []string{"127.0.0.1", "127.0.0.2"}) {
 		t.Fatalf("perAddress=%v addresses=%v", l.PerAddress, l.Addresses())
 	}
