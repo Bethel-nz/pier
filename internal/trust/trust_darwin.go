@@ -3,6 +3,7 @@
 package trust
 
 import (
+	"bytes"
 	"crypto/x509"
 	"os"
 	"os/exec"
@@ -21,9 +22,21 @@ func install(_ *x509.Certificate, caPath string) error {
 	return run("security", "add-trusted-cert", "-r", "trustRoot", "-k", loginKeychain(), caPath)
 }
 
+// remove takes the CA out of the login keychain. A CA that was never added,
+// or is already gone, is removed already.
 func remove(ca *x509.Certificate, caPath string) error {
+	keychain := loginKeychain()
+	if !inKeychain(ca, keychain) {
+		return nil
+	}
 	_ = run("security", "remove-trusted-cert", caPath)
-	return run("security", "delete-certificate", "-Z", thumbprint(ca), loginKeychain())
+	return run("security", "delete-certificate", "-Z", thumbprint(ca), keychain)
+}
+
+// inKeychain reports whether keychain holds ca, matched by SHA-1 as security prints it.
+func inKeychain(ca *x509.Certificate, keychain string) bool {
+	out, err := exec.Command("security", "find-certificate", "-a", "-Z", keychain).Output()
+	return err == nil && bytes.Contains(out, []byte(thumbprint(ca)))
 }
 
 var quoted = regexp.MustCompile(`"(.+)"`)
