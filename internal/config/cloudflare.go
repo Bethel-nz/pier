@@ -62,5 +62,12 @@ func cloudflareErrors(service ResolvedService, claimed map[string]string) []Vali
 		return fail(fmt.Sprintf("duplicates the cloudflare hostname of service %q", owner))
 	}
 	claimed[host] = service.Name
-	return nil
+	// One way in: Cloudflare or Tailscale, never both for the same service.
+	var errs []ValidationError
+	for field, set := range map[string]bool{"path": service.pathSet, "public": service.publicSet} {
+		if set {
+			errs = append(errs, serviceError(service.Name, field, "is a Tailscale setting; a service with cloudflare: is served by Cloudflare only, so remove "+field+" or cloudflare"))
+		}
+	}
+	return errs
 }

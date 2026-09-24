@@ -57,7 +57,9 @@ func cloudflareEnv(t *testing.T) (*fakeEnv, *fakeTunnels, *fakeLocal) {
 	env := newEnv()
 	env.raw.Services = map[string]config.Service{
 		"web": {Target: "localhost:3000", Cloudflare: "app.example.com"},
-		"api": {Target: "localhost:4000", Path: "/api", Cloudflare: "api.example.com", Throttle: &config.Throttle{Preset: "3g"}},
+		"api": {Target: "localhost:4000", Cloudflare: "api.example.com", Throttle: &config.Throttle{Preset: "3g"}},
+		// The only service on Tailscale.
+		"docs": {Target: "localhost:5000", Path: "/docs"},
 	}
 	// api's tap keeps its port, so Tailscale's routes are known in advance.
 	env.state.Taps = []state.Tap{{Service: "api", Target: "http://127.0.0.1:4000", Port: 45001}}
@@ -111,9 +113,16 @@ func TestUpSetsUpTheTunnelOnce(t *testing.T) {
 		t.Fatalf("the daemon was not asked to serve the tunnel: syncs = %v", local.syncs)
 	}
 	for _, info := range result.Services {
-		if info.CloudflareURL != "https://"+info.Cloudflare+"/" || info.CloudflareState != localname.TunnelConnected {
-			t.Fatalf("%s cloudflare = %q (%s)", info.Name, info.CloudflareURL, info.CloudflareState)
+		if info.Cloudflare == "" {
+			continue
 		}
+		if info.CloudflareURL != "https://"+info.Cloudflare+"/" || info.CloudflareState != localname.TunnelConnected || info.URL != "" {
+			t.Fatalf("%s cloudflare = %q (%s), tailnet URL %q", info.Name, info.CloudflareURL, info.CloudflareState, info.URL)
+		}
+	}
+	// Tailscale serves only the service without a cloudflare: hostname.
+	if len(env.saved.Routes) != 1 || env.saved.Routes[0].Service != "docs" {
+		t.Fatalf("owned Tailscale routes = %+v, want docs only", env.saved.Routes)
 	}
 
 	// The next pier up has nothing to ask Cloudflare.
@@ -219,8 +228,22 @@ func TestStatusShowsTheTunnel(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, info := range result.Services {
+		if info.Cloudflare == "" {
+			continue
+		}
 		if info.CloudflareURL != "" || info.CloudflareState != localname.TunnelFailed || info.CloudflareDetail != "Unauthorized" {
 			t.Fatalf("%s = %+v", info.Name, info)
 		}
+		if len(info.Drift) != 0 {
+			t.Fatalf("%s reports Tailscale drift for a Cloudflare service: %v", info.Name, info.Drift)
+		}
+	}
+}
+
+func TestShareRefusesACloudflareService(t *testing.T) {
+	env, tunnels, local := cloudflareEnv(t)
+	_, err := env.cloudflareService(tunnels, local).Share(context.Background(), ShareRequest{Start: env.project.Root, Service: "web"})
+	if err == nil || !strings.Contains(err.Error(), "served by Cloudflare") {
+		t.Fatalf("Share() = %v", err)
 	}
 }

@@ -41,7 +41,7 @@ services:
 | `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)) |
 | `services.<name>.listen` | TCP only: the port clients connect to, by default the target's port |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
-| `services.<name>.cloudflare` | Optional public hostname on a Cloudflare zone you own, such as `app.example.com` (see [Cloudflare](#cloudflare)) |
+| `services.<name>.cloudflare` | Optional public hostname on a Cloudflare zone you own, such as `app.example.com`, instead of Tailscale (see [Cloudflare](#cloudflare)) |
 | `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
 | `services.<name>.dir` | Folder `run` starts in, relative to the project root |
 | `services.<name>.env` | Extra environment variables for `run` |
@@ -198,7 +198,9 @@ On `pier up`, Pier:
 3. points each new hostname at the tunnel with a CNAME (`cloudflared tunnel route dns`),
 4. writes `.pier/cloudflared.yml` and has its background process run `cloudflared` with it, restarting it if it exits.
 
-The hostname is public on the internet. A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile. Tailscale is not needed for Cloudflare, and a service can have both.
+The hostname is public on the internet. A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile.
+
+A service with `cloudflare:` is served by Cloudflare only, never also on Tailscale. Tailscale settings on it, `public:` and `path:`, are errors, and `defaults.public` does not apply to it. `pier share` and `pier unshare` refuse it. Other services in the project stay on Tailscale, and Tailscale is not needed at all when every service uses Cloudflare.
 
 - A hostname that already has a DNS record is refused. `pier up --force` replaces the record.
 - Hostnames must be on the zone you picked when you logged in.

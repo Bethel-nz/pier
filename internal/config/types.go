@@ -119,8 +119,13 @@ type ResolvedService struct {
 	capture       string
 	publicProblem string
 	pathSet       bool
+	publicSet     bool
 	listenSet     bool
 }
+
+// OnTailscale reports whether Pier serves the service on Tailscale. A
+// service with a cloudflare: hostname is served by Cloudflare instead.
+func (s ResolvedService) OnTailscale() bool { return s.Cloudflare == "" }
 
 // Tapped reports whether Pier must see this service's traffic itself: to
 // slow it or to record it.

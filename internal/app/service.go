@@ -551,6 +551,9 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 
 // Share exposes a service through Funnel using the normal reconcile path.
 func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, error) {
+	if err := s.refuseCloudflare(req.Start, req.Service, "share"); err != nil {
+		return ShareResult{}, err
+	}
 	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		overrides[req.Service] = true
 		return nil
@@ -563,6 +566,9 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 
 // Unshare restores the configured public value using the normal reconcile path.
 func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResult, error) {
+	if err := s.refuseCloudflare(req.Start, req.Service, "unshare"); err != nil {
+		return UnshareResult{}, err
+	}
 	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		delete(overrides, req.Service)
 		return nil
@@ -1075,7 +1081,7 @@ func effectiveServices(cfg config.Project, overrides map[string]bool) []config.R
 	services := append([]config.ResolvedService(nil), cfg.Services...)
 	for i, service := range services {
 		public, ok := overrides[service.Name]
-		if !ok {
+		if !ok || !service.OnTailscale() {
 			continue
 		}
 		services[i].Public = public
@@ -1103,6 +1109,9 @@ func desiredRoutes(proj project.Context, cfg config.Project, overrides, paused m
 func routesFromServices(proj project.Context, services []config.ResolvedService) []reconcile.Route {
 	routes := make([]reconcile.Route, 0, len(services))
 	for _, service := range services {
+		if !service.OnTailscale() {
+			continue
+		}
 		routes = append(routes, reconcile.Route{
 			Service:   service.Name,
 			ProjectID: proj.ID,
@@ -1181,6 +1190,9 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Health:     healthByName[service.Name],
 			TCP:        service.TCP(),
 			Cloudflare: service.Cloudflare,
+		}
+		if !service.OnTailscale() {
+			info.URL = "" // its URL is the Cloudflare one
 		}
 		if service.Domain != "" && paused[service.Name] {
 			info.LocalState = "paused"

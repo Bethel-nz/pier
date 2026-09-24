@@ -8,8 +8,9 @@ import (
 func TestCloudflareHostnames(t *testing.T) {
 	project, err := Normalize(Config{Version: 1, Name: "My App", Services: map[string]Service{
 		"web": {Target: "localhost:3000", Cloudflare: "App.Example.com."},
-		"api": {Target: "localhost:4000", Path: "/api", Cloudflare: "api.example.com"},
-	}})
+		// Both at "/" is fine: neither claims a Tailscale path.
+		"api": {Target: "localhost:4000", Cloudflare: "api.example.com"},
+	}, Defaults: Defaults{Public: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +23,9 @@ func TestCloudflareHostnames(t *testing.T) {
 	for _, service := range project.Services {
 		if service.Name == "web" && service.Cloudflare != "app.example.com" {
 			t.Fatalf("web hostname = %q", service.Cloudflare)
+		}
+		if service.OnTailscale() || service.Public {
+			t.Fatalf("%s is on Tailscale (public=%v); want Cloudflare only", service.Name, service.Public)
 		}
 	}
 	if name := project.TunnelName(); name != "pier-my-app" {
@@ -38,6 +42,7 @@ func TestCloudflareRejectsBadHostnames(t *testing.T) {
 		"db":    {Target: "localhost:5432", Protocol: "tcp", Cloudflare: "db.example.com"},
 		"one":   {Target: "localhost:3005", Cloudflare: "same.example.com"},
 		"two":   {Target: "localhost:3006", Cloudflare: "same.example.com"},
+		"both":  {Target: "localhost:3007", Cloudflare: "both.example.com", Path: "/both", Public: PublicFlag(true)},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +58,8 @@ func TestCloudflareRejectsBadHostnames(t *testing.T) {
 		"label.cloudflare": "lowercase letters",
 		"db.cloudflare":    "HTTP services only",
 		"two.cloudflare":   `service "one"`,
+		"both.path":        "Tailscale setting",
+		"both.public":      "served by Cloudflare only",
 	} {
 		if !strings.Contains(got[key], want) {
 			t.Errorf("%s = %q, want it to mention %q", key, got[key], want)

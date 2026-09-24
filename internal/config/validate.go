@@ -60,6 +60,8 @@ func Validate(project Project) []ValidationError {
 		}
 		if service.TCP() {
 			errors = append(errors, tcpErrors(service, claimedRoutes)...)
+		} else if !service.OnTailscale() {
+			// Served by Cloudflare: it claims no Tailscale listener or path.
 		} else if message := invalidPathMessage(service.Path); message != "" {
 			errors = append(errors, serviceError(service.Name, "path", message))
 		} else if route := fmt.Sprintf("https:%d:%s", service.HTTPSPort, service.Path); claimedRoutes[route] != "" {

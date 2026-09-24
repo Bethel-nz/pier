@@ -140,6 +140,23 @@ func (s *Service) cloudflareWarnings(projectID string) []string {
 	return nil
 }
 
+// refuseCloudflare stops pier share and unshare, which switch Tailscale
+// Funnel, on a service Cloudflare serves: it is always public there.
+func (s *Service) refuseCloudflare(start, name, command string) error {
+	loaded, err := s.loadProject(start, true)
+	if err != nil {
+		return err
+	}
+	service, err := findService(loaded.cfg, name)
+	if err != nil {
+		return err
+	}
+	if !service.OnTailscale() {
+		return fmt.Errorf("%s is served by Cloudflare at %s, which is always public; pier %s works on Tailscale services only", name, service.Cloudflare, command)
+	}
+	return nil
+}
+
 // withTunnel fills each service's Cloudflare URL and state from the daemon.
 func withTunnel(infos []ServiceInfo, report localname.Report, projectID string) {
 	status, running := report.Tunnel(projectID)

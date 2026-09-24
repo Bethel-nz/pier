@@ -234,6 +234,9 @@ func (o Options) Machine(result app.MachineResult, err error) error {
 
 // publicColumn is loud for a service anyone on the internet can reach.
 func publicColumn(service app.ServiceInfo) string {
+	if service.Cloudflare != "" {
+		return "PUBLIC (cloudflare)"
+	}
 	if !service.Public {
 		return "no"
 	}

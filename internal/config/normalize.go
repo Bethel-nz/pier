@@ -45,6 +45,12 @@ func Normalize(cfg Config) (Project, error) {
 			public = service.Public.On
 			publicFor = service.Public.For
 		}
+		cloudflare := normalizeDomain(service.Cloudflare)
+		if cloudflare != "" {
+			// Served by Cloudflare instead of Tailscale: defaults.public does not apply.
+			public, publicFor = false, 0
+		}
+		pathSet := strings.TrimSpace(service.Path) != "" && strings.TrimSpace(service.Path) != "/"
 
 		servicePath := service.Path
 		if servicePath == "" {
@@ -78,7 +84,7 @@ func Normalize(cfg Config) (Project, error) {
 			Protocol:   Protocol(protocol),
 			Public:     public,
 			Domain:     normalizeDomain(service.Domain),
-			Cloudflare: normalizeDomain(service.Cloudflare),
+			Cloudflare: cloudflare,
 			Run: Run{
 				Command: strings.TrimSpace(service.Run),
 				Dir:     strings.TrimSpace(service.Dir),
@@ -91,7 +97,8 @@ func Normalize(cfg Config) (Project, error) {
 			throttle:      service.Throttle,
 			capture:       strings.TrimSpace(service.Capture),
 			publicProblem: service.Public.problem(),
-			pathSet:       Protocol(protocol) == ProtocolTCP && strings.TrimSpace(service.Path) != "" && strings.TrimSpace(service.Path) != "/",
+			pathSet:       (Protocol(protocol) == ProtocolTCP || cloudflare != "") && pathSet,
+			publicSet:     cloudflare != "" && service.Public != nil,
 			listenSet:     service.Listen != 0,
 		})
 	}
