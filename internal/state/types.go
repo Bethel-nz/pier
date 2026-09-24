@@ -87,6 +87,8 @@ type Route struct {
 	Path      string `json:"path"`
 	// Public is set for a Funnel route: reachable from the internet.
 	Public bool `json:"public,omitempty"`
+	// TCP is set for a TCP forward, which owns HTTPSPort whole.
+	TCP bool `json:"tcp,omitempty"`
 	// Since is when Pier created the route or last changed it.
 	Since time.Time `json:"since,omitempty"`
 }

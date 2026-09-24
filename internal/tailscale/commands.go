@@ -40,8 +40,14 @@ func funnelStatusCommand() (string, []string) {
 	return executable, []string{"funnel", "status", "--json"}
 }
 
-// UpArgs returns the Tailscale argv that publishes one HTTPS route.
+// UpArgs returns the Tailscale argv that publishes one HTTPS route or TCP forward.
 func UpArgs(route Route) ([]string, error) {
+	if route.TCP {
+		if route.Public {
+			return nil, fmt.Errorf("Pier does not publish TCP port %d through Funnel; TCP services are tailnet-only", route.HTTPSPort)
+		}
+		return []string{"serve", "--bg", "--yes", tcpFlag(route.HTTPSPort), route.Target}, nil
+	}
 	if err := validateFunnelPort(route); err != nil {
 		return nil, err
 	}
@@ -55,8 +61,12 @@ func UpArgs(route Route) ([]string, error) {
 	}, nil
 }
 
-// DownArgs returns the Tailscale argv that removes one path-specific HTTPS route.
+// DownArgs returns the Tailscale argv that removes one path-specific HTTPS
+// route or one TCP forward.
 func DownArgs(route Route) ([]string, error) {
+	if route.TCP {
+		return []string{serveCommand(route.Public), tcpFlag(route.HTTPSPort), "off"}, nil
+	}
 	if err := validateFunnelPort(route); err != nil {
 		return nil, err
 	}
@@ -77,6 +87,10 @@ func serveCommand(public bool) string {
 
 func httpsFlag(port uint16) string {
 	return fmt.Sprintf("--https=%d", port)
+}
+
+func tcpFlag(port uint16) string {
+	return fmt.Sprintf("--tcp=%d", port)
 }
 
 func setPathFlag(path string) string {

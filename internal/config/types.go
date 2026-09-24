@@ -54,14 +54,19 @@ type Service struct {
 	Throttle *Throttle `yaml:"throttle"`
 	// Capture keeps requests to the service for pier replay, such as "24h".
 	Capture string `yaml:"capture"`
+	// Listen is the port a TCP service is reached on, over Tailscale and on
+	// the LAN. It defaults to the target's port.
+	Listen uint16 `yaml:"listen"`
 }
 
-// Protocol is the supported local proxy protocol.
+// Protocol is how Pier reaches a service: HTTP or HTTPS proxied by path, or
+// raw TCP forwarded by port.
 type Protocol string
 
 const (
 	ProtocolHTTP  Protocol = "http"
 	ProtocolHTTPS Protocol = "https"
+	ProtocolTCP   Protocol = "tcp"
 )
 
 // Project is a normalized Pier project.
@@ -83,16 +88,19 @@ type Local struct {
 
 // ResolvedService is a service with inherited values and listener allocation applied.
 type ResolvedService struct {
-	Name      string
-	Target    string
-	Host      string
-	Port      uint16
+	Name   string
+	Target string
+	Host   string
+	Port   uint16
+	// HTTPSPort is the Tailscale listener: 443 or 8443 for HTTP services, the
+	// listen port for TCP ones.
 	HTTPSPort uint16
-	Path      string
-	Protocol  Protocol
-	Public    bool
-	Domain    string
-	Run       Run
+	// Path is empty for TCP services, which are reached by port alone.
+	Path     string
+	Protocol Protocol
+	Public   bool
+	Domain   string
+	Run      Run
 	// PublicFor is how long Public lasts after each pier up; 0 is until pier down.
 	PublicFor time.Duration
 	// Throttle is zero at full speed.
@@ -104,11 +112,16 @@ type ResolvedService struct {
 	throttle      *Throttle
 	capture       string
 	publicProblem string
+	pathSet       bool
+	listenSet     bool
 }
 
 // Tapped reports whether Pier must see this service's traffic itself: to
 // slow it or to record it.
 func (s ResolvedService) Tapped() bool { return !s.Throttle.IsZero() || s.Capture > 0 }
+
+// TCP reports whether the service is raw TCP rather than HTTP.
+func (s ResolvedService) TCP() bool { return s.Protocol == ProtocolTCP }
 
 // Run is how Pier starts a service. Command is empty when Pier does not run it.
 type Run struct {

@@ -12,18 +12,25 @@ const (
 	KindDelete Kind = "delete"
 )
 
-// Route is one desired, actual, or owned HTTPS route.
+// Route is one desired, actual, or owned Tailscale route: an HTTPS path, or
+// a TCP port when TCP is set.
 type Route struct {
 	Service   string
 	ProjectID string
+	// HTTPSPort is the listener: the HTTPS port, or the TCP port.
 	HTTPSPort uint16
 	Path      string
 	Target    string
 	Public    bool
+	TCP       bool
 }
 
-// Key returns the external Tailscale identity: HTTPS listener plus normalized path.
+// Key returns the external Tailscale identity: HTTPS listener plus normalized
+// path, or the TCP port, which a TCP forward owns whole.
 func (r Route) Key() string {
+	if r.TCP {
+		return fmt.Sprintf("tcp:%d", r.HTTPSPort)
+	}
 	return fmt.Sprintf("https:%d:%s", r.HTTPSPort, r.Path)
 }
 

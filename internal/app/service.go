@@ -179,6 +179,8 @@ type ServiceInfo struct {
 	// LocalState is live, probing, conflict, no-certificate, mdns-unavailable, or down.
 	LocalState string
 	Health     health.Result
+	// TCP is set for a raw TCP service, reached at host:port rather than a URL path.
+	TCP bool
 	// PublicSince is when the service's live Funnel route was made; zero if
 	// not public or unknown.
 	PublicSince time.Time
@@ -688,7 +690,7 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string, l
 	if err != nil {
 		return "", fmt.Errorf("Pier could not read Tailscale routes: %w", err)
 	}
-	key := reconcile.Route{HTTPSPort: found.HTTPSPort, Path: found.Path}.Key()
+	key := reconcile.Route{HTTPSPort: found.HTTPSPort, Path: found.Path, TCP: found.TCP}.Key()
 	for _, route := range actual {
 		if route.Key() == key {
 			return found.URL, nil
@@ -756,7 +758,7 @@ func (s *Service) foreignPublic(sess *session) []string {
 	}
 	mine := map[string]bool{}
 	for _, route := range sess.state.Routes {
-		mine[reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}.Key()] = true
+		mine[ownedRoute(route).Key()] = true
 	}
 	for _, op := range sess.plan.Operations {
 		mine[op.After.Key()] = true
@@ -1072,6 +1074,7 @@ func routesFromServices(proj project.Context, services []config.ResolvedService)
 			Path:      service.Path,
 			Target:    service.Target,
 			Public:    service.Public,
+			TCP:       service.TCP(),
 		})
 	}
 	return routes
@@ -1080,20 +1083,23 @@ func routesFromServices(proj project.Context, services []config.ResolvedService)
 func ownedRoutes(proj project.Context, st state.ProjectState) []reconcile.Route {
 	routes := make([]reconcile.Route, 0, len(st.Routes))
 	for _, route := range st.Routes {
-		routes = append(routes, reconcile.Route{
-			Service:   route.Service,
-			ProjectID: proj.ID,
-			HTTPSPort: route.HTTPSPort,
-			Path:      route.Path,
-		})
+		owned := ownedRoute(route)
+		owned.ProjectID = proj.ID
+		routes = append(routes, owned)
 	}
 	return routes
+}
+
+// ownedRoute is a saved route as the planner sees it. Every route key built
+// from saved state goes through here, so HTTPS and TCP routes key alike.
+func ownedRoute(route state.Route) reconcile.Route {
+	return reconcile.Route{Service: route.Service, HTTPSPort: route.HTTPSPort, Path: route.Path, TCP: route.TCP}
 }
 
 func nextOwned(prev []state.Route, completed []reconcile.Operation, now time.Time) []state.Route {
 	byKey := make(map[string]state.Route, len(prev)+len(completed))
 	for _, route := range prev {
-		byKey[reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}.Key()] = route
+		byKey[ownedRoute(route).Key()] = route
 	}
 	for _, op := range completed {
 		switch op.Kind {
@@ -1105,6 +1111,7 @@ func nextOwned(prev []state.Route, completed []reconcile.Operation, now time.Tim
 				HTTPSPort: op.After.HTTPSPort,
 				Path:      op.After.Path,
 				Public:    op.After.Public,
+				TCP:       op.After.TCP,
 				Since:     now,
 			}
 		}
@@ -1133,9 +1140,10 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Path:      service.Path,
 			Public:    service.Public,
 			Paused:    paused[service.Name],
-			URL:       serviceURL(dns, service.HTTPSPort, service.Path),
+			URL:       routeURL(dns, reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path, TCP: service.TCP()}),
 			Domain:    service.Domain,
 			Health:    healthByName[service.Name],
+			TCP:       service.TCP(),
 		}
 		if service.Domain != "" && paused[service.Name] {
 			info.LocalState = "paused"
@@ -1378,6 +1386,7 @@ func convertRoutes(routes []tailscale.Route) []reconcile.Route {
 			Path:      route.Path,
 			Target:    route.Target,
 			Public:    route.Public,
+			TCP:       route.TCP,
 		})
 	}
 	return out
@@ -1389,5 +1398,6 @@ func toTailscaleRoute(route reconcile.Route) tailscale.Route {
 		Path:      route.Path,
 		Target:    route.Target,
 		Public:    route.Public,
+		TCP:       route.TCP,
 	}
 }

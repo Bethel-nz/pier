@@ -54,15 +54,20 @@ func Validate(project Project) []ValidationError {
 		if !validTarget(service) {
 			errors = append(errors, serviceError(service.Name, "target", "must be a loopback host with a valid port"))
 		}
-		if message := invalidPathMessage(service.Path); message != "" {
+		if !service.TCP() && service.listenSet {
+			errors = append(errors, serviceError(service.Name, "listen", "works on TCP services only; HTTP services are reached by path"))
+		}
+		if service.TCP() {
+			errors = append(errors, tcpErrors(service, claimedRoutes)...)
+		} else if message := invalidPathMessage(service.Path); message != "" {
 			errors = append(errors, serviceError(service.Name, "path", message))
 		} else if route := fmt.Sprintf("https:%d:%s", service.HTTPSPort, service.Path); claimedRoutes[route] != "" {
 			errors = append(errors, serviceError(service.Name, "path", fmt.Sprintf("duplicates listener and path claimed by service %q", claimedRoutes[route])))
 		} else {
 			claimedRoutes[route] = service.Name
 		}
-		if service.Protocol != ProtocolHTTP && service.Protocol != ProtocolHTTPS {
-			errors = append(errors, serviceError(service.Name, "protocol", "must be http or https"))
+		if service.Protocol != ProtocolHTTP && service.Protocol != ProtocolHTTPS && service.Protocol != ProtocolTCP {
+			errors = append(errors, serviceError(service.Name, "protocol", "must be http, https, or tcp"))
 		}
 		if service.Domain != "" {
 			if message := invalidDomainMessage(service.Domain); message != "" {
@@ -98,6 +103,35 @@ func Validate(project Project) []ValidationError {
 		return errors[i].Message < errors[j].Message
 	})
 	return errors
+}
+
+// tcpErrors checks a TCP service: one per port, no path, and none of the
+// HTTP-only features.
+func tcpErrors(service ResolvedService, claimed map[string]string) []ValidationError {
+	var errs []ValidationError
+	add := func(field, message string) { errs = append(errs, serviceError(service.Name, field, message)) }
+	route := fmt.Sprintf("tcp:%d", service.HTTPSPort)
+	switch {
+	case service.HTTPSPort == 443 || service.HTTPSPort == 8443:
+		add("listen", fmt.Sprintf("%d is where Pier serves HTTP services; pick another port", service.HTTPSPort))
+	case claimed[route] != "":
+		add("listen", fmt.Sprintf("port %d is already used by TCP service %q", service.HTTPSPort, claimed[route]))
+	default:
+		claimed[route] = service.Name
+	}
+	if service.pathSet {
+		add("path", "TCP services are reached by port, not path; remove path")
+	}
+	if service.Public {
+		add("public", "TCP services are tailnet-only; Funnel TCP is not supported yet")
+	}
+	if service.throttle != nil {
+		add("throttle", "works on HTTP services only")
+	}
+	if service.capture != "" {
+		add("capture", "works on HTTP services only")
+	}
+	return errs
 }
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

@@ -228,7 +228,7 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:      "invalid protocol",
-			input:     "version: 1\nname: demo\nservices:\n  web:\n    target: localhost:3000\n    protocol: tcp\n    public: true\n",
+			input:     "version: 1\nname: demo\nservices:\n  web:\n    target: localhost:3000\n    protocol: udp\n    public: true\n",
 			wantField: "web.protocol",
 		},
 	}
@@ -245,7 +245,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestValidateReturnsAllErrorsInStableOrder(t *testing.T) {
-	project := loadAndNormalize(t, "version: 2\nservices:\n  bad_name:\n    target: example.com:nope\n    path: relative?query=true\n    protocol: tcp\n")
+	project := loadAndNormalize(t, "version: 2\nservices:\n  bad_name:\n    target: example.com:nope\n    path: relative?query=true\n    protocol: udp\n")
 	want := []string{"name", "version", "bad_name.name", "bad_name.path", "bad_name.protocol", "bad_name.target"}
 	if got := validationFields(Validate(project)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Validate() fields = %v, want %v", got, want)
