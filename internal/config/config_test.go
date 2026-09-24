@@ -10,7 +10,7 @@ import (
 
 func TestNormalizeDomain(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "pier.yaml")
-	input := "version: 1\nname: demo\nservices:\n  api:\n    target: localhost:4000\n    domain: My-App.local.\n"
+	input := "version: 1\nname: demo\nservices:\n  api:\n    target: localhost:4000\n    local: My-App.local.\n"
 	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -37,8 +37,8 @@ func TestValidateDomainLength(t *testing.T) {
 		Path: "/", Protocol: ProtocolHTTP, Domain: long + ".local",
 	}}}
 	errors := Validate(project)
-	if len(errors) != 1 || errors[0].Field != "domain" {
-		t.Fatalf("Validate() = %#v, want one domain error", errors)
+	if len(errors) != 1 || errors[0].Field != "local" {
+		t.Fatalf("Validate() = %#v, want one local error", errors)
 	}
 }
 
@@ -48,8 +48,8 @@ func TestValidateDomain(t *testing.T) {
 		Path: "/", Protocol: ProtocolHTTP, Domain: "192.168.1.182",
 	}}}
 	errors := Validate(project)
-	if len(errors) != 1 || errors[0].Field != "domain" {
-		t.Fatalf("Validate() = %#v, want one domain error", errors)
+	if len(errors) != 1 || errors[0].Field != "local" {
+		t.Fatalf("Validate() = %#v, want one local error", errors)
 	}
 }
 

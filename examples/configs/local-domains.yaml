@@ -6,9 +6,9 @@ services:
   web:
     target: localhost:3000
     path: /
-    domain: greppa.local
+    local: greppa.local
 
   api:
     target: localhost:4000
     path: /api
-    domain: api.greppa.local
+    local: api.greppa.local

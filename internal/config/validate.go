@@ -65,9 +65,9 @@ func Validate(project Project) []ValidationError {
 		}
 		if service.Domain != "" {
 			if message := invalidDomainMessage(service.Domain); message != "" {
-				errors = append(errors, serviceError(service.Name, "domain", message))
+				errors = append(errors, serviceError(service.Name, "local", message))
 			} else if owner, exists := claimedDomains[service.Domain]; exists {
-				errors = append(errors, serviceError(service.Name, "domain", fmt.Sprintf("duplicates domain claimed by service %q", owner)))
+				errors = append(errors, serviceError(service.Name, "local", fmt.Sprintf("duplicates the local name of service %q", owner)))
 			} else {
 				claimedDomains[service.Domain] = service.Name
 			}

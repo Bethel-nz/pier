@@ -37,7 +37,7 @@ services:
 - path must begin with /, be path-clean, and be unique across services.
 - protocol is http or https and describes the local upstream.
 - public: false uses Tailscale Serve for tailnet-only access. public: true uses Tailscale Funnel and exposes the service to the internet. Keep it false unless the user explicitly requests public access.
-- domain is optional and must end in .local, such as web.project-name.local. pier up then serves it over HTTPS to every device on the same network, with a certificate Pier issues. Add it only when the user wants LAN or phone access.
+- local is optional and must end in .local, such as web.project-name.local. pier up then serves it over HTTPS to every device on the same network, with a certificate Pier issues. Add it only when the user wants LAN or phone access.
 
 Reference configurations: https://github.com/Bethel-nz/pier/tree/main/examples/configs
 

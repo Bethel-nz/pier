@@ -86,15 +86,15 @@ services:
 
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
-## Local domains
+## Local names
 
-Give a service a `domain` ending in `.local`, and `pier up` serves it over HTTPS to this machine and every phone, tablet, and laptop on the same network:
+Give a service a `local` name ending in `.local`, and `pier up` serves it over HTTPS to this machine and every phone, tablet, and laptop on the same network:
 
 ```yaml
 services:
   web:
     target: localhost:3000
-    domain: greppa.local
+    local: greppa.local
 ```
 
 ```
@@ -107,13 +107,13 @@ Nothing else to install. On `pier up`, Pier:
 - asks the OS once to trust that CA (the macOS password dialog, a Windows confirmation, or `sudo` on Linux),
 - starts a small background daemon that answers mDNS for the names and proxies HTTPS on port 443 to your service, which stays bound to loopback.
 
-The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a domain. The Tailscale URL is unchanged.
+The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. The Tailscale URL is unchanged.
 
-To trust HTTPS on a phone, open `http://<your-domain>/.pier/ca.pem` on it once and install the profile. On iOS, also enable it under Settings → General → About → Certificate Trust Settings.
+To trust HTTPS on a phone, open `http://<local-name>/.pier/ca.pem` on it once and install the profile. On iOS, also enable it under Settings → General → About → Certificate Trust Settings.
 
 On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(command -v pier)"`. Without it, Pier uses port 8443 and says so. Chrome and Firefox on Linux read their own certificate stores; Pier adds its CA there when NSS's `certutil` is installed.
 
-A `.local` domain makes that service reachable by anyone on the same network. Use it on networks you trust.
+A `local` name makes that service reachable by anyone on the same network. Use it on networks you trust.
 
 A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration details are in [`docs/configuration.md`](docs/configuration.md).
 

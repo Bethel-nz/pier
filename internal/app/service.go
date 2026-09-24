@@ -613,7 +613,7 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string, l
 	}
 	if local {
 		if found.Domain == "" {
-			return "", fmt.Errorf("Pier has no .local domain for %q; add domain: to it in pier.yaml", name)
+			return "", fmt.Errorf("Pier has no .local name for %q; add local: to it in pier.yaml", name)
 		}
 		if found.LocalURL == "" {
 			return "", fmt.Errorf("Pier is not serving %s right now (%s); run pier up", found.Domain, found.LocalState)

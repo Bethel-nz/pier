@@ -20,9 +20,9 @@ type Service struct {
 	Path     string `yaml:"path"`
 	Public   *bool  `yaml:"public"`
 	Protocol string `yaml:"protocol"`
-	// Domain is an optional LAN name, such as my-app.local.
-	// Pier publishes it and moves it when the machine's address changes.
-	Domain string `yaml:"domain"`
+	// Domain is the optional `local:` name, such as my-app.local, that pier up
+	// serves over HTTPS to every device on the local network.
+	Domain string `yaml:"local"`
 }
 
 // Protocol is the supported local proxy protocol.
