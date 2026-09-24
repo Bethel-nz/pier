@@ -58,6 +58,8 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 		certs:         map[string]loadedCert{},
 		taps:          map[tapKey]*tapServer{},
 		lanPorts:      map[int]*tapServer{},
+		tcp:           map[int]*localproxy.TCPForward{},
+		tcpTargets:    map[int]string{},
 		captures:      map[string]*projectCapture{},
 		expire:        hooks.Expire,
 		expiring:      map[string]*expiry{},
@@ -119,7 +121,9 @@ type daemon struct {
 	listeners     []*localproxy.Listeners
 	certs         map[string]loadedCert
 	taps          map[tapKey]*tapServer
-	lanPorts      map[int]*tapServer         // plain-HTTP LAN fallback, by port
+	lanPorts      map[int]*tapServer // plain-HTTP LAN fallback, by port
+	tcp           map[int]*localproxy.TCPForward
+	tcpTargets    map[int]string
 	captures      map[string]*projectCapture // by project ID
 	caPEM         []byte
 	startup       []string // warnings found once at startup, such as a port fallback
@@ -249,8 +253,18 @@ func (d *daemon) reconcile(now time.Time) bool {
 	statuses := make([]NameStatus, 0, len(routes)+len(conflicts))
 	names := make([]string, 0, len(routes))
 	lan := map[int]localproxy.Route{}
+	tcp := map[int]tcpRoute{}
 	for _, route := range routes {
-		status := NameStatus{Name: route.Name, Service: route.Service, Project: route.ProjectID, Target: route.Target, LANPort: route.LANPort}
+		status := NameStatus{Name: route.Name, Service: route.Service, Project: route.ProjectID, Target: route.Target, LANPort: route.LANPort, TCP: route.TCP}
+		if route.TCP {
+			// Raw TCP: the name resolves, the port relays; no HTTPS or certificate.
+			if route.LANPort != 0 {
+				tcp[route.LANPort] = tcpRoute{name: route.Name, target: route.Target}
+			}
+			names = append(names, route.Name)
+			statuses = append(statuses, status)
+			continue
+		}
 		// A tapped service's .local name is throttled and captured like its tap.
 		tap := tapped[tapKey{route.ProjectID, route.Service}]
 		proxy := localproxy.Route{
@@ -277,6 +291,9 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 	d.proxy.SetCertificates(served)
 	failedLAN := d.syncLANPorts(lan)
+	for name, detail := range d.syncTCP(tcp) {
+		failedLAN[name] = detail
+	}
 	for i := range statuses {
 		if detail, failed := failedLAN[statuses[i].Name]; failed {
 			statuses[i].LANPort = 0

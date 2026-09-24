@@ -60,6 +60,13 @@ func Normalize(cfg Config) (Project, error) {
 		if public {
 			httpsPort = 443
 		}
+		if Protocol(protocol) == ProtocolTCP {
+			// Reached by port alone, on the target's port unless listen says otherwise.
+			httpsPort, servicePath = port, ""
+			if service.Listen != 0 {
+				httpsPort = service.Listen
+			}
+		}
 
 		project.Services = append(project.Services, ResolvedService{
 			Name:      name,
@@ -83,6 +90,8 @@ func Normalize(cfg Config) (Project, error) {
 			throttle:      service.Throttle,
 			capture:       strings.TrimSpace(service.Capture),
 			publicProblem: service.Public.problem(),
+			pathSet:       Protocol(protocol) == ProtocolTCP && strings.TrimSpace(service.Path) != "" && strings.TrimSpace(service.Path) != "/",
+			listenSet:     service.Listen != 0,
 		})
 	}
 

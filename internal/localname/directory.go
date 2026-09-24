@@ -49,14 +49,25 @@ func (r Report) LANURL(name string) string {
 	if !r.Running || !ok || status.LANPort == 0 || r.LANAddress == "" {
 		return ""
 	}
-	return "http://" + net.JoinHostPort(r.LANAddress, strconv.Itoa(status.LANPort)) + "/"
+	address := net.JoinHostPort(r.LANAddress, strconv.Itoa(status.LANPort))
+	if status.TCP {
+		return "tcp://" + address
+	}
+	return "http://" + address + "/"
 }
 
-// URL is the browser address for name, or "" when it is not being served.
+// URL is the address for name, or "" when it is not being served: an
+// https:// URL, or tcp://name:port for a TCP service.
 func (r Report) URL(name string) string {
 	status, ok := r.Names[name]
 	if !r.Running || !ok || status.State != StateLive {
 		return ""
+	}
+	if status.TCP {
+		if status.LANPort == 0 {
+			return "" // local.lan: false; the name resolves but nothing relays
+		}
+		return "tcp://" + net.JoinHostPort(name, strconv.Itoa(status.LANPort))
 	}
 	return Heartbeat{HTTPSPort: r.HTTPSPort}.URL(name)
 }

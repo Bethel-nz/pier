@@ -35,7 +35,7 @@ func (p *Public) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	}
 	*p = Public{On: true, raw: node.Value}
-	if d, err := time.ParseDuration(node.Value); err == nil {
+	if d, err := ParseSpan(node.Value); err == nil {
 		p.For = d
 	}
 	return nil // Validate explains a bad value
@@ -54,7 +54,7 @@ func (p *Public) problem() string {
 		return ""
 	}
 	if p.For < minPublicFor || p.For > maxPublicFor {
-		return fmt.Sprintf("%s must be true, false, or a duration from 1m to 168h, such as 2h", strconv.Quote(p.raw))
+		return fmt.Sprintf("%s must be true, false, or a length of time from 1min to 7d, such as 30min, 2hr, or 1d", strconv.Quote(p.raw))
 	}
 	return ""
 }

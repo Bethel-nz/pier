@@ -1,6 +1,9 @@
 package localname
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/Bethel-nz/pier/internal/localproxy"
 )
 
@@ -44,4 +47,41 @@ func (d *daemon) closeLANPorts() {
 		server.close()
 		delete(d.lanPorts, port)
 	}
+	for port, forward := range d.tcp {
+		forward.Close()
+		delete(d.tcp, port)
+	}
+}
+
+// tcpRoute is one TCP service to relay on the LAN.
+type tcpRoute struct {
+	name   string
+	target string // tcp://host:port
+}
+
+// syncTCP relays each TCP service's port from the LAN addresses to its
+// target, following Wi-Fi changes. It returns why a name's port cannot be
+// reached from the LAN, when it cannot.
+func (d *daemon) syncTCP(wanted map[int]tcpRoute) map[string]string {
+	for port, forward := range d.tcp {
+		if route, ok := wanted[port]; !ok || d.tcpTargets[port] != route.target {
+			forward.Close()
+			delete(d.tcp, port)
+			delete(d.tcpTargets, port)
+		}
+	}
+	failed := map[string]string{}
+	for port, route := range wanted {
+		forward := d.tcp[port]
+		if forward == nil {
+			forward = localproxy.ForwardTCP(port, strings.TrimPrefix(route.target, "tcp://"))
+			d.tcp[port], d.tcpTargets[port] = forward, route.target
+		} else {
+			forward.Refresh()
+		}
+		if !forward.Reachable() && lanAddress() != nil {
+			failed[route.name] = "TCP port " + strconv.Itoa(port) + " could not be opened on this machine's LAN addresses"
+		}
+	}
+	return failed
 }

@@ -17,8 +17,11 @@ type Route struct {
 	KeyFile   string
 	// ThisMachineOnly refuses connections from other devices.
 	ThisMachineOnly bool
-	// LANPort serves the name over plain HTTP on this machine's LAN address; 0 for none.
+	// LANPort serves the name over plain HTTP on this machine's LAN address,
+	// or relays raw TCP for a TCP route; 0 for none.
 	LANPort int
+	// TCP routes resolve by name and relay LANPort; they have no HTTPS side.
+	TCP bool
 }
 
 // Conflict is a name that two projects both declared. The first claim wins.
@@ -61,6 +64,7 @@ func Routes(projects []state.ProjectState) ([]Route, []Conflict) {
 				CertFile:        certFile,
 				KeyFile:         keyFile,
 				ThisMachineOnly: project.Local.ThisMachineOnly,
+				TCP:             domain.TCP,
 			})
 			if !project.Local.ThisMachineOnly {
 				routes[len(routes)-1].LANPort = domain.LANPort

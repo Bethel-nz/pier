@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/config"
@@ -37,9 +40,9 @@ func withLiveRoutes(infos []ServiceInfo, services []config.ResolvedService, actu
 		info := &infos[i]
 		info.URL = ""
 		info.Public = false
-		want := reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path}
+		want := reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path, TCP: service.TCP()}
 		if route, ok := live[want.Key()]; ok {
-			info.URL = serviceURL(dns, route.HTTPSPort, route.Path)
+			info.URL = routeURL(dns, route)
 			info.Public = route.Public
 			if !ownedKey(owned, service.Name, want.Key()) {
 				info.Drift = append(info.Drift, "served by a route this project did not create; run pier up --force to adopt it")
@@ -58,7 +61,7 @@ func withLiveRoutes(infos []ServiceInfo, services []config.ResolvedService, actu
 		}
 		// Routes this project made earlier, somewhere pier.yaml no longer asks for.
 		for _, old := range owned {
-			key := reconcile.Route{HTTPSPort: old.HTTPSPort, Path: old.Path}.Key()
+			key := ownedRoute(old).Key()
 			route, ok := live[key]
 			if old.Service != service.Name || key == want.Key() || !ok {
 				continue
@@ -66,11 +69,11 @@ func withLiveRoutes(infos []ServiceInfo, services []config.ResolvedService, actu
 			if route.Public {
 				info.Public = true
 			}
-			info.Drift = append(info.Drift, fmt.Sprintf("an older route at %s is still live; run pier up to remove it", serviceURL(dns, route.HTTPSPort, route.Path)))
+			info.Drift = append(info.Drift, fmt.Sprintf("an older route at %s is still live; run pier up to remove it", routeURL(dns, route)))
 		}
 		for _, old := range owned {
 			if old.Service == service.Name && old.Public && !old.Since.IsZero() {
-				if route, ok := live[reconcile.Route{HTTPSPort: old.HTTPSPort, Path: old.Path}.Key()]; ok && route.Public {
+				if route, ok := live[ownedRoute(old).Key()]; ok && route.Public {
 					info.PublicSince = old.Since
 				}
 			}
@@ -78,9 +81,20 @@ func withLiveRoutes(infos []ServiceInfo, services []config.ResolvedService, actu
 	}
 }
 
+// routeURL is where a route is reached: an https:// URL, or tcp://host:port.
+func routeURL(dns string, route reconcile.Route) string {
+	if route.TCP {
+		if dns = strings.TrimSuffix(dns, "."); dns == "" {
+			return ""
+		}
+		return "tcp://" + net.JoinHostPort(dns, strconv.Itoa(int(route.HTTPSPort)))
+	}
+	return serviceURL(dns, route.HTTPSPort, route.Path)
+}
+
 func ownedKey(owned []state.Route, service, key string) bool {
 	for _, route := range owned {
-		if route.Service == service && (reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}).Key() == key {
+		if route.Service == service && ownedRoute(route).Key() == key {
 			return true
 		}
 	}
@@ -132,7 +146,7 @@ func (s *Service) Machine(ctx context.Context) (MachineResult, error) {
 	owners := s.owners()
 	result := MachineResult{DNSName: dns}
 	for _, route := range actual {
-		entry := MachineRoute{Route: route, URL: serviceURL(dns, route.HTTPSPort, route.Path)}
+		entry := MachineRoute{Route: route, URL: routeURL(dns, route)}
 		if owner, ok := owners[route.Key()]; ok {
 			entry.Project, entry.Service, entry.Since = owner.project, owner.route.Service, owner.route.Since
 		}
@@ -172,7 +186,7 @@ func (s *Service) owners() map[string]owner {
 			name = project.ProjectID
 		}
 		for _, route := range project.Routes {
-			out[reconcile.Route{HTTPSPort: route.HTTPSPort, Path: route.Path}.Key()] = owner{project: name, route: route}
+			out[ownedRoute(route).Key()] = owner{project: name, route: route}
 		}
 	}
 	return out
@@ -187,7 +201,7 @@ func publicWarnings(actual []reconcile.Route, owners map[string]owner, dns strin
 		if !route.Public || skip[route.Key()] {
 			continue
 		}
-		url := serviceURL(dns, route.HTTPSPort, route.Path)
+		url := routeURL(dns, route)
 		if url == "" {
 			url = route.Key()
 		}

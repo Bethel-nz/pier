@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,19 +36,31 @@ type tapServer struct {
 	err     error
 }
 
-// projectCapture writes one project's captures to its .pier/capture.db.
+// projectCapture writes one project's captures to its .pier/capture.db. Two
+// routines run for it: the recorder writing requests, and the pruner deleting
+// them once they are older than capture: allows.
 type projectCapture struct {
 	path     string
 	store    *capture.Store
 	recorder *capture.Recorder
 	stop     context.CancelFunc
-	done     chan struct{}
-	keep     map[string]time.Duration
-	pruned   time.Time
+	done     sync.WaitGroup
+
+	mu   sync.Mutex
+	keep map[string]time.Duration
 }
 
-// pruneEvery is how often expired captures are deleted.
-const pruneEvery = time.Minute
+func (pc *projectCapture) setKeep(keep map[string]time.Duration) {
+	pc.mu.Lock()
+	pc.keep = keep
+	pc.mu.Unlock()
+}
+
+func (pc *projectCapture) keepFor() map[string]time.Duration {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	return pc.keep
+}
 
 // syncTaps opens, updates, and closes taps and capture files to match saved
 // state. It returns each tapped service's route, for its .local name to share.
@@ -79,15 +92,12 @@ func (d *daemon) syncTaps(saved []state.ProjectState, now time.Time) (map[tapKey
 		}
 	}
 	for id, services := range keep {
-		pc, err := d.captureFor(id, paths[id])
+		pc, err := d.captureFor(id, paths[id], services)
 		if err != nil {
 			warnings = append(warnings, "Pier could not open "+capture.PathFor(paths[id])+" to capture requests: "+err.Error())
 			continue
 		}
-		pc.keep = services
-		if now.Sub(pc.pruned) >= pruneEvery {
-			pc.prune(now)
-		}
+		pc.setKeep(services)
 		if err, _ := pc.recorder.LastErr.Load().(error); err != nil {
 			warnings = append(warnings, "Pier could not save captured requests: "+err.Error())
 		}
@@ -177,7 +187,9 @@ func (s *tapServer) close() {
 	_ = s.server.Shutdown(ctx)
 }
 
-func (d *daemon) captureFor(projectID, root string) (*projectCapture, error) {
+// captureFor opens the project's capture file and starts its recorder and
+// pruner routines, the first time the project captures anything.
+func (d *daemon) captureFor(projectID, root string, keep map[string]time.Duration) (*projectCapture, error) {
 	if pc := d.captures[projectID]; pc != nil {
 		return pc, nil
 	}
@@ -187,30 +199,18 @@ func (d *daemon) captureFor(projectID, root string) (*projectCapture, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	pc := &projectCapture{path: path, store: store, recorder: capture.NewRecorder(store), stop: cancel, done: make(chan struct{})}
-	go func() { pc.recorder.Run(ctx); close(pc.done) }()
+	pc := &projectCapture{path: path, store: store, recorder: capture.NewRecorder(store), stop: cancel, keep: keep}
+	pc.done.Add(2)
+	go func() { defer pc.done.Done(); pc.recorder.Run(ctx) }()
+	go func() { defer pc.done.Done(); store.Prunes(ctx, capture.PruneEvery, pc.keepFor) }()
 	d.captures[projectID] = pc
 	return pc, nil
 }
 
-// prune deletes captures past each service's keep time, and all captures of
-// services that no longer capture.
-func (pc *projectCapture) prune(now time.Time) {
-	pc.pruned = now
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	services := make([]string, 0, len(pc.keep))
-	for service, keep := range pc.keep {
-		services = append(services, service)
-		_, _ = pc.store.Prune(ctx, service, now.Add(-keep))
-	}
-	_ = pc.store.PruneExcept(ctx, services)
-}
-
-// close writes what is queued, then closes the file.
+// close writes what is queued, stops pruning, then closes the file.
 func (pc *projectCapture) close() {
 	pc.stop()
-	<-pc.done
+	pc.done.Wait()
 	_ = pc.store.Close()
 }
 
