@@ -100,13 +100,16 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 // Up renders apply results.
 func (o Options) Up(result app.UpResult, err error) error {
 	if o.JSON {
-		payload := JSONStatus{Services: jsonServices(result.Services)}
+		payload := JSONStatus{Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
 		if writeErr := writeJSON(o.Out, "up", result.Project, payload, warningsFromPlan(result.Plan), jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
 	}
 	if err != nil {
+		if anyDomain(result.Services) && len(result.Services) > 0 {
+			writeLocalSetup(o.Err, result.Services, result.Local)
+		}
 		return o.Error(err)
 	}
 	if !hasMutations(result.Plan) {
@@ -115,6 +118,7 @@ func (o Options) Up(result app.UpResult, err error) error {
 		writeOperations(o.Out, result.Plan.Operations)
 	}
 	writeServiceTable(o.Out, result.Services)
+	writeLocalSetup(o.Out, result.Services, result.Local)
 	return nil
 }
 
@@ -140,7 +144,7 @@ func (o Options) Down(result app.DownResult, err error) error {
 // Status renders configured services.
 func (o Options) Status(result app.StatusResult, err error) error {
 	if o.JSON {
-		payload := JSONStatus{DNSName: result.DNSName, Services: jsonServices(result.Services)}
+		payload := JSONStatus{DNSName: result.DNSName, Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
 		if writeErr := writeJSON(o.Out, "status", result.Project, payload, nil, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
@@ -191,7 +195,20 @@ func (o Options) Doctor(result app.DoctorResult, err error) error {
 			fmt.Fprintf(o.Out, "  %s  %s\n", item.Service, item.Status)
 		}
 	}
+	if result.Local != nil {
+		writeLocalDoctor(o.Out, doctorDomains(result), *result.Local)
+	}
 	return err
+}
+
+func doctorDomains(result app.DoctorResult) []string {
+	var domains []string
+	for _, service := range result.Config.Services {
+		if service.Domain != "" {
+			domains = append(domains, service.Domain)
+		}
+	}
+	return domains
 }
 
 // Share renders one shared service.
@@ -268,12 +285,7 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 		)
 	}
 	_ = tab.Flush()
-	for _, service := range services {
-		if service.LocalURL == "" {
-			continue
-		}
-		fmt.Fprintf(w, "local  %s  %s\n", service.Name, service.LocalURL)
-	}
+	writeLocalNames(w, services)
 }
 
 func writeOperations(w io.Writer, ops []reconcile.Operation) {

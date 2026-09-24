@@ -82,32 +82,36 @@ type JSONConflict struct {
 type JSONStatus struct {
 	DNSName  string        `json:"dnsName"`
 	Services []JSONService `json:"services"`
+	Local    *JSONLocal    `json:"local,omitempty"`
 }
 
 // JSONService is one service row.
 type JSONService struct {
-	Name      string `json:"name"`
-	Target    string `json:"target"`
-	Path      string `json:"path"`
-	Public    bool   `json:"public"`
-	Paused    bool   `json:"paused"`
-	Health    string `json:"health"`
-	URL       string `json:"url"`
-	LocalURL  string `json:"localUrl,omitempty"`
-	HTTPSPort uint16 `json:"httpsPort"`
+	Name       string `json:"name"`
+	Target     string `json:"target"`
+	Path       string `json:"path"`
+	Public     bool   `json:"public"`
+	Paused     bool   `json:"paused"`
+	Health     string `json:"health"`
+	URL        string `json:"url"`
+	Domain     string `json:"domain,omitempty"`
+	LocalURL   string `json:"localUrl,omitempty"`
+	LocalState string `json:"localState,omitempty"`
+	HTTPSPort  uint16 `json:"httpsPort"`
 }
 
 // JSONDoctor is the doctor command payload.
 type JSONDoctor struct {
-	Installed     bool     `json:"installed"`
-	DaemonRunning bool     `json:"daemonRunning"`
-	Authenticated bool     `json:"authenticated"`
-	MagicDNS      bool     `json:"magicDNS"`
-	HTTPS         bool     `json:"https"`
-	Funnel        bool     `json:"funnel"`
-	Tailscale     string   `json:"tailscale,omitempty"`
-	Health        []string `json:"health,omitempty"`
-	Validation    []string `json:"validation,omitempty"`
+	Installed     bool       `json:"installed"`
+	DaemonRunning bool       `json:"daemonRunning"`
+	Authenticated bool       `json:"authenticated"`
+	MagicDNS      bool       `json:"magicDNS"`
+	HTTPS         bool       `json:"https"`
+	Funnel        bool       `json:"funnel"`
+	Tailscale     string     `json:"tailscale,omitempty"`
+	Health        []string   `json:"health,omitempty"`
+	Validation    []string   `json:"validation,omitempty"`
+	Local         *JSONLocal `json:"local,omitempty"`
 }
 
 func writeJSON(w io.Writer, command string, proj project.Context, data any, warnings []string, errs []JSONError) error {
@@ -170,15 +174,17 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 	out := make([]JSONService, 0, len(services))
 	for _, service := range services {
 		out = append(out, JSONService{
-			Name:      service.Name,
-			Target:    displayTarget(service),
-			Path:      service.Path,
-			Public:    service.Public,
-			Paused:    service.Paused,
-			Health:    string(service.Health.Status),
-			URL:       service.URL,
-			LocalURL:  service.LocalURL,
-			HTTPSPort: service.HTTPSPort,
+			Name:       service.Name,
+			Target:     displayTarget(service),
+			Path:       service.Path,
+			Public:     service.Public,
+			Paused:     service.Paused,
+			Health:     string(service.Health.Status),
+			URL:        service.URL,
+			Domain:     service.Domain,
+			LocalURL:   service.LocalURL,
+			LocalState: service.LocalState,
+			HTTPSPort:  service.HTTPSPort,
 		})
 	}
 	return out
@@ -203,6 +209,13 @@ func jsonDoctor(result app.DoctorResult) JSONDoctor {
 	}
 	for _, item := range result.Validation {
 		payload.Validation = append(payload.Validation, item.Error())
+	}
+	if result.Local != nil {
+		payload.Local = &JSONLocal{
+			Running: result.Local.Running, HTTPSPort: result.Local.HTTPSPort,
+			CAPath: result.Local.CAPath, CATrusted: result.Local.CATrusted,
+			Warnings: localWarnings(*result.Local),
+		}
 	}
 	return payload
 }

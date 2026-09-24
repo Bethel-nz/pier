@@ -60,6 +60,8 @@ type UpResult struct {
 	Project  project.Context
 	Plan     reconcile.Plan
 	Services []ServiceInfo
+	// Local describes .local serving: certificate, trust, port, and names.
+	Local localname.Report
 }
 
 // DownRequest removes routes owned by the current project.
@@ -83,6 +85,7 @@ type StatusResult struct {
 	Project  project.Context
 	DNSName  string
 	Services []ServiceInfo
+	Local    localname.Report
 }
 
 // DoctorRequest diagnoses configuration, Tailscale, and local targets.
@@ -98,6 +101,8 @@ type DoctorResult struct {
 	Capabilities tailscale.Capabilities
 	TailscaleErr error
 	Health       []health.Result
+	// Local is nil when no service declares a domain.
+	Local *localname.Report
 }
 
 // ShareRequest applies a runtime public-access override.
@@ -148,8 +153,12 @@ type ServiceInfo struct {
 	Public    bool
 	Paused    bool
 	URL       string
-	LocalURL  string
-	Health    health.Result
+	Domain    string
+	// LocalURL is set only while Pier is actually serving Domain.
+	LocalURL string
+	// LocalState is live, probing, conflict, no-certificate, mdns-unavailable, or down.
+	LocalState string
+	Health     health.Result
 }
 
 // InvalidConfigError is aggregated configuration validation failure.
@@ -327,14 +336,18 @@ type Service struct {
 	openURL    func(context.Context, string) error
 	copyURL    func(context.Context, string) error
 	addService func(path, name string, service config.Service) error
-	locals     interface {
-		Sync(context.Context) error
-	}
+	locals     LocalNames
 }
 
-// EnableLocalNames publishes optional service domains on the local network.
-func (s *Service) EnableLocalNames(directory *localname.Directory) {
-	s.locals = directory
+// LocalNames serves .local domains: certificates, trust, and the daemon.
+type LocalNames interface {
+	Sync(ctx context.Context, root string, names []string) (localname.Report, error)
+	Status() localname.Report
+}
+
+// EnableLocalNames serves service domains on the local network.
+func (s *Service) EnableLocalNames(names LocalNames) {
+	s.locals = names
 }
 
 // New constructs the production application service.
@@ -418,10 +431,17 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 	dns := s.lookupDNS(ctx, st.DNSName)
 	services := effectiveServices(loaded.cfg, st.Overrides)
 	results := s.checkTargets(ctx, services)
+	infos := serviceInfos(services, dns, indexHealth(results), st.Paused)
+	var local localname.Report
+	if s.locals != nil && hasDomains(loaded.cfg) {
+		local = s.locals.Status()
+		withLocal(infos, local)
+	}
 	return StatusResult{
 		Project:  loaded.project,
 		DNSName:  dns,
-		Services: serviceInfos(services, dns, indexHealth(results), st.Paused),
+		Services: infos,
+		Local:    local,
 	}, nil
 }
 
@@ -438,6 +458,10 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 	caps, tsErr := s.ts.Check(ctx)
 	result.Capabilities = caps
 	result.TailscaleErr = tsErr
+	if s.locals != nil && hasDomains(loaded.cfg) {
+		local := s.locals.Status()
+		result.Local = &local
+	}
 	return result, loadErr
 }
 
@@ -519,6 +543,8 @@ func (s *Service) AddService(ctx context.Context, req AddServiceRequest) (AddSer
 type OpenRequest struct {
 	Start   string
 	Service string
+	// Local selects the .local URL instead of the Tailscale URL.
+	Local bool
 }
 
 // OpenResult is the resolved service URL.
@@ -530,6 +556,8 @@ type OpenResult struct {
 type CopyRequest struct {
 	Start   string
 	Service string
+	// Local selects the .local URL instead of the Tailscale URL.
+	Local bool
 }
 
 // CopyResult is the resolved service URL after a successful copy.
@@ -539,7 +567,7 @@ type CopyResult struct {
 
 // Open resolves the current URL for a named service and opens it.
 func (s *Service) Open(ctx context.Context, req OpenRequest) (OpenResult, error) {
-	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service)
+	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service, req.Local)
 	if err != nil {
 		return OpenResult{}, err
 	}
@@ -553,7 +581,7 @@ func (s *Service) Open(ctx context.Context, req OpenRequest) (OpenResult, error)
 
 // Copy resolves the current URL for a named service and copies it.
 func (s *Service) Copy(ctx context.Context, req CopyRequest) (CopyResult, error) {
-	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service)
+	url, err := s.lookupConfiguredURL(ctx, req.Start, req.Service, req.Local)
 	if err != nil {
 		return CopyResult{}, err
 	}
@@ -565,7 +593,7 @@ func (s *Service) Copy(ctx context.Context, req CopyRequest) (CopyResult, error)
 	return CopyResult{URL: url}, nil
 }
 
-func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string) (string, error) {
+func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string, local bool) (string, error) {
 	status, err := s.Status(ctx, StatusRequest{Start: start})
 	if err != nil {
 		return "", err
@@ -582,6 +610,15 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string) (
 	}
 	if found.Paused {
 		return "", &ServicePausedError{Name: name}
+	}
+	if local {
+		if found.Domain == "" {
+			return "", fmt.Errorf("Pier has no .local domain for %q; add domain: to it in pier.yaml", name)
+		}
+		if found.LocalURL == "" {
+			return "", fmt.Errorf("Pier is not serving %s right now (%s); run pier up", found.Domain, found.LocalState)
+		}
+		return found.LocalURL, nil
 	}
 	actual, err := s.ts.Routes(ctx)
 	if err != nil {
@@ -627,10 +664,10 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 			return result, err
 		}
 	}
-	if err := s.applyAndPersist(ctx, &sess, overrides, paused, true); err != nil {
-		return result, err
-	}
-	return result, nil
+	err = s.applyAndPersist(ctx, &sess, overrides, paused, true)
+	result.Local = sess.local
+	withLocal(result.Services, sess.local)
+	return result, err
 }
 
 type session struct {
@@ -640,6 +677,7 @@ type session struct {
 	actual  []reconcile.Route
 	dns     string
 	plan    reconcile.Plan
+	local   localname.Report
 }
 
 type loadedProject struct {
@@ -753,21 +791,23 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 }
 
 func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool, keepDomains bool) error {
-	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
-	if err != nil {
-		return &ApplyError{Err: err, Result: result}
-	}
 	domains := []state.LocalDomain(nil)
 	if keepDomains {
 		domains = localDomains(sess.cfg, paused)
 	}
+	// Refuse a taken name before Tailscale changes, so a rejected up leaves nothing half-applied.
+	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
+		return err
+	}
+	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
+	if err != nil {
+		return &ApplyError{Err: err, Result: result}
+	}
 	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
-	domainsChanged := !sameDomains(sess.state.Domains, domains)
+	domainsChanged := !sameDomains(sess.state.Domains, domains) || (len(domains) > 0 && sess.state.Path != sess.project.Root)
 	if result.Verified == nil && !pausedChanged && !domainsChanged {
-		if s.locals != nil && len(domains) > 0 {
-			return s.locals.Sync(ctx)
-		}
-		return nil
+		// Nothing to save, but the daemon may have stopped since: make it serve again.
+		return s.syncLocal(ctx, sess, domains)
 	}
 	st := sess.state
 	st.Version = state.CurrentVersion
@@ -783,9 +823,6 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		st.Overrides = overrides
 	}
 	st.Paused = compactBoolMap(paused)
-	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
-		return err
-	}
 	st.Domains = domains
 	if s.now != nil {
 		st.UpdatedAt = s.now()
@@ -796,10 +833,23 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		return fmt.Errorf("Pier could not save project state: %w", err)
 	}
 	sess.state = st
-	if s.locals != nil {
-		if err := s.locals.Sync(ctx); err != nil {
-			return err
-		}
+	return s.syncLocal(ctx, sess, domains)
+}
+
+// syncLocal hands saved domains to the local-name daemon. Projects without
+// domains skip it, unless they just removed their last one.
+func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.LocalDomain) error {
+	if s.locals == nil || (len(domains) == 0 && !hasDomains(sess.cfg)) {
+		return nil
+	}
+	names := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		names = append(names, domain.Name)
+	}
+	report, err := s.locals.Sync(ctx, sess.project.Root, names)
+	sess.local = report
+	if err != nil {
+		return fmt.Errorf("Pier could not serve local domains: %w", err)
 	}
 	return nil
 }
@@ -934,8 +984,11 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Public:    service.Public,
 			Paused:    paused[service.Name],
 			URL:       serviceURL(dns, service.HTTPSPort, service.Path),
-			LocalURL:  localServiceURL(service, paused[service.Name]),
+			Domain:    service.Domain,
 			Health:    healthByName[service.Name],
+		}
+		if service.Domain != "" && paused[service.Name] {
+			info.LocalState = "paused"
 		}
 		if info.Health.Service == "" {
 			info.Health.Service = service.Name
@@ -978,7 +1031,7 @@ func localDomains(cfg config.Project, paused map[string]bool) []state.LocalDomai
 		domains = append(domains, state.LocalDomain{
 			Service: service.Name,
 			Name:    service.Domain,
-			Port:    service.Port,
+			Target:  service.Target,
 		})
 	}
 	return domains
@@ -1024,19 +1077,24 @@ func (s *Service) rejectDomainConflicts(projectID string, domains []state.LocalD
 	return nil
 }
 
-func localServiceURL(service config.ResolvedService, paused bool) string {
-	if service.Domain == "" || paused {
-		return ""
+// withLocal fills each service's local URL and state from the daemon report.
+func withLocal(infos []ServiceInfo, report localname.Report) {
+	for i := range infos {
+		if infos[i].Domain == "" || infos[i].LocalState == "paused" {
+			continue
+		}
+		infos[i].LocalState = report.State(infos[i].Domain)
+		infos[i].LocalURL = report.URL(infos[i].Domain)
 	}
-	scheme := "http"
-	if service.Protocol == config.ProtocolHTTPS {
-		scheme = "https"
+}
+
+func hasDomains(cfg config.Project) bool {
+	for _, service := range cfg.Services {
+		if service.Domain != "" {
+			return true
+		}
 	}
-	path := service.Path
-	if path == "" {
-		path = "/"
-	}
-	return scheme + "://" + net.JoinHostPort(service.Domain, strconv.Itoa(int(service.Port))) + path
+	return false
 }
 
 func serviceURL(dnsName string, httpsPort uint16, path string) string {

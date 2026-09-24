@@ -33,9 +33,10 @@ type Route struct {
 	Path      string `json:"path"`
 }
 
-// LocalDomain is a LAN name Pier publishes for one service.
+// LocalDomain is a .local name Pier serves for one service.
+// Target is the loopback URL the name routes to, such as http://127.0.0.1:3000.
 type LocalDomain struct {
 	Service string `json:"service"`
 	Name    string `json:"name"`
-	Port    uint16 `json:"port"`
+	Target  string `json:"target"`
 }

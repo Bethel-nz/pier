@@ -36,18 +36,52 @@ func (rt *runtime) renderer(command string) render.Options {
 func newLocaldCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:    "locald",
-		Short:  "Publish local domains and move them when this machine's address changes",
+		Short:  "Serve .local domains for every Pier project on this machine",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			store, err := state.Open()
 			if err != nil {
 				return err
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return localname.Run(ctx, store, localname.NewAnnouncer())
+			return localname.Run(ctx, store)
 		},
 	}
+}
+
+func newTrustCommand(rt *runtime) *cobra.Command {
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "trust",
+		Short: "Trust Pier's local CA (pier up does this for you on first run)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			directory := rt.local
+			if directory == nil {
+				store, err := state.Open()
+				if err != nil {
+					return err
+				}
+				directory = localname.NewDirectory(store)
+			}
+			if remove {
+				path, err := directory.Untrust()
+				if err != nil {
+					return rt.renderer("trust").Error(err)
+				}
+				fmt.Fprintf(rt.stdout, "removed %s from the trust store\n", path)
+				return nil
+			}
+			path, err := directory.Trust()
+			if err != nil {
+				return rt.renderer("trust").Error(fmt.Errorf("Pier could not trust its local CA: %w", err))
+			}
+			fmt.Fprintf(rt.stdout, "trusted %s\n", path)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove Pier's CA from the trust store")
+	return cmd
 }
 
 func newInitCommand(rt *runtime) *cobra.Command {
@@ -258,15 +292,18 @@ func existingNames(ctx context.Context, rt *runtime) []string {
 }
 
 func newOpenCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var local bool
+	cmd := &cobra.Command{
 		Use:   "open <service>",
 		Short: "Open the resolved service URL in the default browser",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rt.app.Open(cmd.Context(), app.OpenRequest{Start: rt.start(), Service: args[0]})
+			result, err := rt.app.Open(cmd.Context(), app.OpenRequest{Start: rt.start(), Service: args[0], Local: local})
 			return rt.renderer("open").URL("open", app.StatusResult{}.Project, result.URL, err)
 		},
 	}
+	cmd.Flags().BoolVar(&local, "local", false, "open the .local URL instead of the Tailscale URL")
+	return cmd
 }
 
 func newTUICommand(rt *runtime) *cobra.Command {
@@ -292,17 +329,24 @@ func runTUI(ctx context.Context, rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	if rt.local != nil {
+		// OS trust prompts would tear through the TUI; pier trust handles it instead.
+		rt.local.Interactive = false
+	}
 	return tui.Run(ctx, svc, store, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
 }
 
 func newCopyCommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
+	var local bool
+	cmd := &cobra.Command{
 		Use:   "copy <service>",
 		Short: "Copy the resolved service URL to the clipboard",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := rt.app.Copy(cmd.Context(), app.CopyRequest{Start: rt.start(), Service: args[0]})
+			result, err := rt.app.Copy(cmd.Context(), app.CopyRequest{Start: rt.start(), Service: args[0], Local: local})
 			return rt.renderer("copy").URL("copy", app.StatusResult{}.Project, result.URL, err)
 		},
 	}
+	cmd.Flags().BoolVar(&local, "local", false, "copy the .local URL instead of the Tailscale URL")
+	return cmd
 }
