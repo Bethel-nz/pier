@@ -142,7 +142,7 @@ func TestNormalizeSortsServicesAndInheritsDefaults(t *testing.T) {
 			Protocol: "https",
 		},
 		Services: map[string]Service{
-			"web": {Target: "localhost:3000", Public: &public},
+			"web": {Target: "localhost:3000", Public: PublicFlag(public)},
 			"api": {Target: "localhost:4000"},
 		},
 	}

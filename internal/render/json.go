@@ -101,6 +101,8 @@ type JSONService struct {
 	HTTPSPort  uint16 `json:"httpsPort"`
 	// PublicSince is when the live Funnel route was made, when known.
 	PublicSince *time.Time `json:"publicSince,omitempty"`
+	// PublicUntil is when a timed public window closes.
+	PublicUntil *time.Time `json:"publicUntil,omitempty"`
 	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
 	Drift []string `json:"drift,omitempty"`
 }
@@ -196,19 +198,24 @@ func jsonRoute(route reconcile.Route) JSONRoute {
 func jsonServices(services []app.ServiceInfo) []JSONService {
 	out := make([]JSONService, 0, len(services))
 	for _, service := range services {
+		var until *time.Time
+		if !service.PublicUntil.IsZero() {
+			until = &service.PublicUntil
+		}
 		out = append(out, JSONService{
-			Name:       service.Name,
-			Target:     displayTarget(service),
-			Path:       service.Path,
-			Public:     service.Public,
-			Paused:     service.Paused,
-			Health:     string(service.Health.Status),
-			URL:        service.URL,
-			Domain:     service.Domain,
-			LocalURL:   service.LocalURL,
-			LocalState: service.LocalState,
-			HTTPSPort:  service.HTTPSPort,
-			Drift:      service.Drift,
+			PublicUntil: until,
+			Name:        service.Name,
+			Target:      displayTarget(service),
+			Path:        service.Path,
+			Public:      service.Public,
+			Paused:      service.Paused,
+			Health:      string(service.Health.Status),
+			URL:         service.URL,
+			Domain:      service.Domain,
+			LocalURL:    service.LocalURL,
+			LocalState:  service.LocalState,
+			HTTPSPort:   service.HTTPSPort,
+			Drift:       service.Drift,
 		})
 		if !service.PublicSince.IsZero() {
 			since := service.PublicSince

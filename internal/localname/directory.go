@@ -102,7 +102,7 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string, setti
 	}
 	beat, beatErr := readHeartbeat()
 	running := beatErr == nil && beat.Fresh(d.now())
-	if len(routes) == 0 && !anyTaps(saved) {
+	if len(routes) == 0 && !daemonWork(saved) {
 		if running {
 			_ = requestStop(beat.PID)
 		}

@@ -16,6 +16,7 @@ import (
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/render"
 	"github.com/Bethel-nz/pier/internal/state"
+	"github.com/Bethel-nz/pier/internal/tailscale"
 	"github.com/Bethel-nz/pier/internal/tui"
 )
 
@@ -45,7 +46,9 @@ func newLocaldCommand() *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return localname.Run(ctx, store)
+			// No local names on this service: the daemon rereads saved state itself.
+			service := app.New(store, tailscale.ExecRunner{})
+			return localname.Run(ctx, store, localname.Hooks{Expire: service.Expire})
 		},
 	}
 }

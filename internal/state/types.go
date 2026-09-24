@@ -26,7 +26,31 @@ type ProjectState struct {
 	Overrides  map[string]bool `json:"overrides,omitempty"`
 	Paused     map[string]bool `json:"paused,omitempty"`
 	Taps       []Tap           `json:"taps,omitempty"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
+	// PublicUntil is when each timed `public:` window closes.
+	PublicUntil map[string]time.Time `json:"publicUntil,omitempty"`
+	UpdatedAt   time.Time            `json:"updatedAt"`
+}
+
+// ExpiryDue reports whether a public window has closed while this project
+// still owns the service's public route.
+func (p ProjectState) ExpiryDue(now time.Time) bool {
+	for _, route := range p.Routes {
+		if end, ok := p.PublicUntil[route.Service]; ok && route.HTTPSPort == 443 && !now.Before(end) {
+			return true
+		}
+	}
+	return false
+}
+
+// OwnsTimedPublic reports whether the project holds a public route with a
+// window, so Pier's background process must stay up to close it.
+func (p ProjectState) OwnsTimedPublic() bool {
+	for _, route := range p.Routes {
+		if _, ok := p.PublicUntil[route.Service]; ok && route.HTTPSPort == 443 {
+			return true
+		}
+	}
+	return false
 }
 
 // Tap is a loopback port where the daemon takes a service's traffic before

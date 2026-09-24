@@ -516,7 +516,7 @@ func newEnv() *fakeEnv {
 			Services: map[string]config.Service{
 				"web":     {Target: "localhost:3000"},
 				"api":     {Target: "localhost:4000", Path: "/api"},
-				"webhook": {Target: "localhost:8787", Path: "/hooks", Public: &public},
+				"webhook": {Target: "localhost:8787", Path: "/hooks", Public: config.PublicFlag(public)},
 			},
 		},
 		caps: tailscale.Capabilities{

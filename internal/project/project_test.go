@@ -173,7 +173,7 @@ func TestInitCreatesMinimalProjectFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if raw.Services["web"].Public == nil || *raw.Services["web"].Public {
+	if raw.Services["web"].Public == nil || raw.Services["web"].Public.On {
 		t.Errorf("Init() web public = %v, want explicit false boolean", raw.Services["web"].Public)
 	}
 	project, err := config.Normalize(raw)

@@ -30,9 +30,16 @@ var (
 // idleExit is how long the daemon keeps running with no names to serve.
 const idleExit = 3 * time.Second
 
-// Run serves every saved .local name until ctx ends, a stop is requested, or
-// no project declares a name anymore. Only one daemon runs per user.
-func Run(ctx context.Context, projects *state.Store) error {
+// Hooks are what the daemon asks of the rest of Pier.
+type Hooks struct {
+	// Expire closes the project at root's public windows that have ended.
+	Expire func(ctx context.Context, root string) error
+}
+
+// Run serves every saved .local name and tap, and closes public windows,
+// until ctx ends, a stop is requested, or no project needs it anymore. Only
+// one daemon runs per user.
+func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 	lock, owned, err := lockDaemon()
 	if err != nil {
 		return err
@@ -42,37 +49,28 @@ func Run(ctx context.Context, projects *state.Store) error {
 	}
 	defer lock.Close()
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	d := &daemon{
-		projects: projects,
-		proxy:    localproxy.New(),
-		certs:    map[string]loadedCert{},
-		taps:     map[tapKey]*tapServer{},
-		captures: map[string]*projectCapture{},
-		beat:     Heartbeat{PID: os.Getpid(), Build: buildID(), StartedAt: time.Now()},
+		ctx:           ctx,
+		projects:      projects,
+		proxy:         localproxy.New(),
+		certs:         map[string]loadedCert{},
+		taps:          map[tapKey]*tapServer{},
+		captures:      map[string]*projectCapture{},
+		expire:        hooks.Expire,
+		expiring:      map[string]*expiry{},
+		responderDone: closedChan(),
+		beat:          Heartbeat{PID: os.Getpid(), Build: buildID(), StartedAt: time.Now()},
 	}
-
-	if err := d.listen(); err != nil {
-		// Leave this heartbeat behind: pier up reads the reason from it.
-		d.beat.Error = err.Error()
-		d.beat.UpdatedAt = time.Now()
-		_ = writeHeartbeat(d.beat)
-		return err
+	if port, err := d.serveAPI(); err == nil {
+		d.beat.APIPort = port
+	} else {
+		d.startup = append(d.startup, "Pier could not start its dashboard API: "+err.Error())
 	}
 	defer removeHeartbeat(d.beat.PID)
 	defer d.closeServers()
 	defer d.closeTaps() // first: captured requests are written before the heartbeat goes
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	responderDone := make(chan struct{})
-	if names, kind, err := newPublisher(d.beat.HTTPSPort); err != nil {
-		d.beat.MDNSError = err.Error()
-		close(responderDone)
-	} else {
-		d.responder = names
-		d.beat.MDNS = kind
-		go func() { _ = names.Serve(ctx); close(responderDone) }()
-	}
 
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -92,7 +90,7 @@ func Run(ctx context.Context, projects *state.Store) error {
 		}
 		select {
 		case <-ctx.Done():
-			<-responderDone // goodbyes are sent before the heartbeat disappears
+			<-d.responderDone // goodbyes are sent before the heartbeat disappears
 			return nil
 		case <-tick.C:
 		}
@@ -106,17 +104,23 @@ type loadedCert struct {
 }
 
 type daemon struct {
-	projects  *state.Store
-	proxy     *localproxy.Proxy
-	responder publisher
-	servers   []*http.Server
-	listeners []*localproxy.Listeners
-	certs     map[string]loadedCert
-	taps      map[tapKey]*tapServer
-	captures  map[string]*projectCapture // by project ID
-	caPEM     []byte
-	startup   []string // warnings found once at startup, such as a port fallback
-	beat      Heartbeat
+	ctx      context.Context
+	projects *state.Store
+	lan      bool // the .local ports are open
+	expire   func(ctx context.Context, root string) error
+	expiring map[string]*expiry // by project ID
+	// responderDone closes once the name publisher has said goodbye.
+	responderDone chan struct{}
+	proxy         *localproxy.Proxy
+	responder     publisher
+	servers       []*http.Server
+	listeners     []*localproxy.Listeners
+	certs         map[string]loadedCert
+	taps          map[tapKey]*tapServer
+	captures      map[string]*projectCapture // by project ID
+	caPEM         []byte
+	startup       []string // warnings found once at startup, such as a port fallback
+	beat          Heartbeat
 
 	// published is the last written heartbeat, read by the API goroutines.
 	mu        sync.RWMutex
@@ -170,11 +174,25 @@ func (d *daemon) listen() error {
 		d.beat.HTTPPort = httpListeners.Port
 		d.servers = append(d.servers, plain)
 	}
-	if port, err := d.serveAPI(); err == nil {
-		d.beat.APIPort = port
-	} else {
-		d.startup = append(d.startup, "Pier could not start its dashboard API: "+err.Error())
+	return nil
+}
+
+// openLAN binds the .local ports and starts publishing names, the first time
+// some project has a name. Until then the daemon listens on loopback only.
+func (d *daemon) openLAN() error {
+	if err := d.listen(); err != nil {
+		return err
 	}
+	d.lan = true
+	names, kind, err := newPublisher(d.beat.HTTPSPort)
+	if err != nil {
+		d.beat.MDNSError = err.Error()
+		return nil
+	}
+	d.responder = names
+	d.beat.MDNS = kind
+	d.responderDone = make(chan struct{})
+	go func() { _ = names.Serve(d.ctx); close(d.responderDone) }()
 	return nil
 }
 
@@ -186,8 +204,9 @@ func (d *daemon) closeServers() {
 	}
 }
 
-// reconcile matches the proxy, certificates, and mDNS names to saved state,
-// then writes the heartbeat. It reports whether any name is being served.
+// reconcile matches the proxy, certificates, mDNS names, taps, and public
+// windows to saved state, then writes the heartbeat. It reports whether the
+// daemon has any work left.
 func (d *daemon) reconcile(now time.Time) bool {
 	for _, listeners := range d.listeners {
 		listeners.Refresh() // follow Wi-Fi changes when a port is shared per address
@@ -202,7 +221,18 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 	d.beat.Error = ""
 	routes, conflicts := Routes(saved)
+	if len(routes) > 0 && !d.lan {
+		if err := d.openLAN(); err != nil {
+			// pier up reads the reason from the heartbeat; the next tick tries again.
+			d.beat.Error = err.Error()
+			d.beat.UpdatedAt = now
+			d.publish()
+			return true
+		}
+	}
 	d.refreshCA()
+	windows, windowWarnings := d.closeWindows(saved, now)
+	warnings = append(warnings, windowWarnings...)
 	tapped, taps, tapWarnings := d.syncTaps(saved, now)
 	warnings = append(warnings, tapWarnings...)
 	for _, tap := range taps {
@@ -278,7 +308,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0 || len(taps) > 0
+	return len(routes) > 0 || len(taps) > 0 || windows
 }
 
 // certificate loads a project's leaf, reloading it when the file changes.

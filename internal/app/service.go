@@ -179,6 +179,8 @@ type ServiceInfo struct {
 	// PublicSince is when the service's live Funnel route was made; zero if
 	// not public or unknown.
 	PublicSince time.Time
+	// PublicUntil is when a timed public window closes; zero otherwise.
+	PublicUntil time.Time
 	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
 	// pier status fills it; other commands just made the two agree.
 	Drift []string
@@ -413,6 +415,8 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 	if err != nil {
 		return result, err
 	}
+	// Plan shows what pier up would do, which opens a fresh public window.
+	sess.cfg = withExpiry(sess.cfg, renewWindows(sess.cfg, s.clock()), s.clock())
 	taps, err := assignTaps(sess.cfg, sess.state.Taps, sess.state.Paused)
 	if err != nil {
 		return result, err
@@ -425,7 +429,7 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 
 // Up validates, plans, applies, verifies, and persists owned routes.
 func (s *Service) Up(ctx context.Context, req UpRequest) (UpResult, error) {
-	return s.reconcile(ctx, req.Start, req.Force, req.Strict, nil, "")
+	return s.reconcile(ctx, req.Start, req.Force, req.Strict, true, nil, "")
 }
 
 // Down deletes only routes recorded as owned by this project.
@@ -460,7 +464,8 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 	if err != nil {
 		return StatusResult{Project: loaded.project}, fmt.Errorf("Pier could not load project state: %w", err)
 	}
-	services := effectiveServices(loaded.cfg, st.Overrides)
+	now := s.clock()
+	services := effectiveServices(withExpiry(loaded.cfg, st.PublicUntil, now), st.Overrides)
 	results := s.checkTargets(ctx, services)
 	result := StatusResult{Project: loaded.project}
 	// URLs come from what Tailscale serves now, never from what was saved.
@@ -478,7 +483,8 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 		result.DNSName = s.lookupDNS(ctx, "")
 		result.Services = serviceInfos(services, result.DNSName, indexHealth(results), st.Paused)
 		withLiveRoutes(result.Services, services, actual, st.Routes, result.DNSName, st.Paused)
-		result.Warnings = publicWarnings(actual, s.owners(), result.DNSName, s.clock(), nil)
+		withPublicUntil(result.Services, st.PublicUntil, st.Overrides, now)
+		result.Warnings = publicWarnings(actual, s.owners(), result.DNSName, now, nil)
 	}
 	if s.locals != nil && hasDomains(loaded.cfg) {
 		result.Local = s.locals.Status()
@@ -517,7 +523,7 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 
 // Share exposes a service through Funnel using the normal reconcile path.
 func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides, _ map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		overrides[req.Service] = true
 		return nil
 	}, req.Service)
@@ -529,7 +535,7 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 
 // Unshare restores the configured public value using the normal reconcile path.
 func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(overrides, _ map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		delete(overrides, req.Service)
 		return nil
 	}, req.Service)
@@ -541,7 +547,7 @@ func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResul
 
 // Pause removes a service route from Tailscale and leaves the local process running.
 func (s *Service) Pause(ctx context.Context, req PauseRequest) (PauseResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(_, paused map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(_, paused map[string]bool) error {
 		paused[req.Service] = true
 		return nil
 	}, req.Service)
@@ -550,7 +556,7 @@ func (s *Service) Pause(ctx context.Context, req PauseRequest) (PauseResult, err
 
 // Resume restores a paused service route through the normal reconcile path.
 func (s *Service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, func(_, paused map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(_, paused map[string]bool) error {
 		delete(paused, req.Service)
 		return nil
 	}, req.Service)
@@ -572,8 +578,7 @@ func (s *Service) AddService(ctx context.Context, req AddServiceRequest) (AddSer
 		write = config.AddService
 	}
 	service := config.Service{Target: req.Target, Path: req.Path, Protocol: req.Protocol}
-	public := req.Public
-	service.Public = &public
+	service.Public = config.PublicFlag(req.Public)
 	if err := write(loaded.project.ConfigPath, req.Name, service); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			return result, &ServiceExistsError{Name: req.Name}
@@ -689,12 +694,20 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string, l
 	return "", &NotConfiguredError{Name: name}
 }
 
-func (s *Service) reconcile(ctx context.Context, start string, force, strict bool, mutate func(overrides, paused map[string]bool) error, focus string) (UpResult, error) {
+// reconcile applies the project's routes. renew opens a fresh window for each
+// timed public service, which only pier up does.
+func (s *Service) reconcile(ctx context.Context, start string, force, strict, renew bool, mutate func(overrides, paused map[string]bool) error, focus string) (UpResult, error) {
 	sess, err := s.prepare(ctx, start)
 	result := UpResult{Project: sess.project}
 	if err != nil {
 		return result, err
 	}
+	now := s.clock()
+	sess.until = sess.state.PublicUntil
+	if renew {
+		sess.until = renewWindows(sess.cfg, now)
+	}
+	sess.cfg = withExpiry(sess.cfg, sess.until, now)
 	if focus != "" {
 		if _, err := findService(sess.cfg, focus); err != nil {
 			return result, err
@@ -719,6 +732,7 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 	}
 	healthResults := s.checkTargets(ctx, services)
 	result.Services = serviceInfos(services, sess.dns, indexHealth(healthResults), paused)
+	withPublicUntil(result.Services, sess.until, overrides, now)
 	if strict {
 		if err := strictHealth(healthResults); err != nil {
 			return result, err
@@ -757,6 +771,8 @@ type session struct {
 	local   localname.Report
 	// taps are the services Pier throttles or captures after this change.
 	taps []state.Tap
+	// until is when each timed public window closes after this change.
+	until map[string]time.Time
 	// tailscaleSkipped says why Tailscale was left alone, when it is unavailable
 	// and the project still has local names to serve.
 	tailscaleSkipped string
@@ -893,11 +909,13 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides, paused map[string]bool, keepDomains bool) error {
 	domains := []state.LocalDomain(nil)
 	taps := []state.Tap(nil)
+	var until map[string]time.Time
 	if keepDomains {
 		domains = localDomains(sess.cfg, paused)
 		taps = sess.taps
+		until = sess.until
 	}
-	hadTaps := len(sess.state.Taps) > 0
+	hadWork := needsDaemon(sess.state)
 	// Refuse a taken name before Tailscale changes, so a rejected up leaves nothing half-applied.
 	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
 		return err
@@ -913,10 +931,11 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	pausedChanged := !maps.Equal(compactBoolMap(sess.state.Paused), compactBoolMap(paused))
 	domainsChanged := !sameDomains(sess.state.Domains, domains) || (len(domains) > 0 && sess.state.Path != sess.project.Root) ||
 		sess.state.Local != settings
-	tapsChanged := !sameTaps(sess.state.Taps, taps) || (len(taps) > 0 && sess.state.Path != sess.project.Root)
+	tapsChanged := !sameTaps(sess.state.Taps, taps) || (len(taps) > 0 && sess.state.Path != sess.project.Root) ||
+		!sameTimes(sess.state.PublicUntil, until)
 	if result.Verified == nil && !pausedChanged && !domainsChanged && !tapsChanged {
 		// Nothing to save, but the daemon may have stopped since: make it serve again.
-		return s.syncLocal(ctx, sess, domains, hadTaps)
+		return s.syncLocal(ctx, sess, domains, hadWork)
 	}
 	st := sess.state
 	st.Version = state.CurrentVersion
@@ -934,19 +953,20 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	st.Paused = compactBoolMap(paused)
 	st.Domains = domains
 	st.Taps = taps
+	st.PublicUntil = until
 	st.Local = settings
 	st.UpdatedAt = s.clock()
 	if err := s.store.Save(st); err != nil {
 		return fmt.Errorf("Pier could not save project state: %w", err)
 	}
 	sess.state = st
-	return s.syncLocal(ctx, sess, domains, hadTaps)
+	return s.syncLocal(ctx, sess, domains, hadWork)
 }
 
-// syncLocal hands saved domains and taps to the daemon. Projects with neither
-// skip it, unless they just removed their last one.
-func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.LocalDomain, hadTaps bool) error {
-	if s.locals == nil || (len(domains) == 0 && !hasDomains(sess.cfg) && len(sess.state.Taps) == 0 && !hadTaps) {
+// syncLocal hands saved domains, taps, and public windows to the daemon.
+// Projects with none skip it, unless they just dropped their last one.
+func (s *Service) syncLocal(ctx context.Context, sess *session, domains []state.LocalDomain, hadWork bool) error {
+	if s.locals == nil || (len(domains) == 0 && !hasDomains(sess.cfg) && !needsDaemon(sess.state) && !hadWork) {
 		return nil
 	}
 	names := make([]string, 0, len(domains))

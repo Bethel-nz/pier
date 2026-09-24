@@ -231,7 +231,11 @@ func publicColumn(service app.ServiceInfo) string {
 	if !service.Public {
 		return "no"
 	}
-	return publicLabel(service.PublicSince)
+	label := publicLabel(service.PublicSince)
+	if !service.PublicUntil.IsZero() {
+		label += " · " + timeLeft(service.PublicUntil, time.Now())
+	}
+	return label
 }
 
 // publicLabel is PUBLIC, with how long when Pier knows it.
@@ -454,6 +458,19 @@ func warningsFromPlan(plan reconcile.Plan) []string {
 		return []string{}
 	}
 	return []string{"unmanaged Tailscale routes were taken over"}
+}
+
+// timeLeft is how long until a public window closes: "1h12m left".
+func timeLeft(until, now time.Time) string {
+	left := until.Sub(now)
+	switch {
+	case left >= time.Hour:
+		return fmt.Sprintf("%dh%02dm left", int(left.Hours()), int(left.Minutes())%60)
+	case left >= time.Minute:
+		return fmt.Sprintf("%dm left", int(left.Minutes()))
+	default:
+		return fmt.Sprintf("%ds left", max(int(left.Seconds()), 0))
+	}
 }
 
 func orDash(value string) string {

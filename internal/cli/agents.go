@@ -36,7 +36,7 @@ services:
 - target must use localhost or another loopback address with a port.
 - path must begin with /, be path-clean, and be unique across services.
 - protocol is http or https and describes the local upstream.
-- public: false uses Tailscale Serve for tailnet-only access. public: true uses Tailscale Funnel and exposes the service to the internet. Keep it false unless the user explicitly requests public access.
+- public: false uses Tailscale Serve for tailnet-only access. public: true uses Tailscale Funnel and exposes the service to the internet. Keep it false unless the user explicitly requests public access. A duration such as public: 2h is public for that long after each pier up, then private again; prefer it when the user needs a public link only for a demo or webhook test.
 - local is optional and must end in .local, such as web.project-name.local. pier up then serves it over HTTPS to every device on the same network, with a certificate Pier issues. Add it only when the user wants LAN or phone access.
 - run is optional: the command that starts the service, such as "bun run dev". pier up then starts it with PORT set to the target port and streams its output until Ctrl-C. dir sets its folder, env adds variables, and watch lists globs, such as "**/*.go", whose changes restart it. Add run only when the user wants Pier to start their apps; skip watch for dev servers with their own hot reload.
 - throttle is optional and slows a service to test slow networks: slow-3g, 3g, 4g, or {latency: 300ms, down: 1mbit, up: 500kbit}.

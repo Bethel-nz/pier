@@ -128,7 +128,11 @@ func serviceNode(service Service) *yaml.Node {
 		appendMapping(node, "protocol", scalarNode(service.Protocol), false)
 	}
 	if service.Public != nil {
-		appendMapping(node, "public", boolNode(*service.Public), false)
+		value := boolNode(service.Public.On)
+		if service.Public.For > 0 {
+			value = scalarNode(service.Public.For.String())
+		}
+		appendMapping(node, "public", value, false)
 	}
 	return node
 }

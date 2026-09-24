@@ -188,6 +188,8 @@ Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit wh
 
 `public: true` and `pier share` publish a path on the internet through Funnel. Anyone who can reach the Funnel URL can reach that local service. Tailscale still owns TLS, DNS, and Funnel policy; Pier only asks Tailscale to configure the path.
 
+`public: 2h` publishes a service for two hours from each `pier up`, then makes it private again on its own. Use it for demos and webhook testing so a public link never outlives the reason for it. See [`docs/configuration.md`](docs/configuration.md#public-for-a-while).
+
 ## Safety
 
 Pier never runs `tailscale serve reset` or `tailscale funnel reset`. `pier down` removes only routes this project recorded as owned. Unrelated Tailscale routes are left untouched unless you pass `--force` to take over a conflicting path. Details: [`docs/troubleshooting.md`](docs/troubleshooting.md).

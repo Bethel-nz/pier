@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Normalize applies inherited values and produces a deterministic service list.
@@ -39,8 +40,10 @@ func Normalize(cfg Config) (Project, error) {
 		}
 
 		public := cfg.Defaults.Public
+		var publicFor time.Duration
 		if service.Public != nil {
-			public = *service.Public
+			public = service.Public.On
+			publicFor = service.Public.For
 		}
 
 		servicePath := service.Path
@@ -74,10 +77,12 @@ func Normalize(cfg Config) (Project, error) {
 				Env:     service.Env,
 				Watch:   service.Watch,
 			},
-			Throttle: shaping,
-			Capture:  keep,
-			throttle: service.Throttle,
-			capture:  strings.TrimSpace(service.Capture),
+			PublicFor:     publicFor,
+			Throttle:      shaping,
+			Capture:       keep,
+			throttle:      service.Throttle,
+			capture:       strings.TrimSpace(service.Capture),
+			publicProblem: service.Public.problem(),
 		})
 	}
 

@@ -35,10 +35,10 @@ type Defaults struct {
 
 // Service is a service entry before defaults are applied.
 type Service struct {
-	Target   string `yaml:"target"`
-	Path     string `yaml:"path"`
-	Public   *bool  `yaml:"public"`
-	Protocol string `yaml:"protocol"`
+	Target   string  `yaml:"target"`
+	Path     string  `yaml:"path"`
+	Public   *Public `yaml:"public"`
+	Protocol string  `yaml:"protocol"`
 	// Domain is the optional `local:` name, such as my-app.local, that pier up
 	// serves over HTTPS to every device on the local network.
 	Domain string `yaml:"local"`
@@ -93,14 +93,17 @@ type ResolvedService struct {
 	Public    bool
 	Domain    string
 	Run       Run
+	// PublicFor is how long Public lasts after each pier up; 0 is until pier down.
+	PublicFor time.Duration
 	// Throttle is zero at full speed.
 	Throttle Shaping
 	// Capture is how long requests are kept for replay; 0 captures nothing.
 	Capture time.Duration
 
 	// As written, for Validate to explain.
-	throttle *Throttle
-	capture  string
+	throttle      *Throttle
+	capture       string
+	publicProblem string
 }
 
 // Tapped reports whether Pier must see this service's traffic itself: to

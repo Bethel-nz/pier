@@ -37,7 +37,7 @@ services:
 | `defaults.protocol` | Inherited `http` or `https` |
 | `services.<name>.target` | Host and port of the local process |
 | `services.<name>.path` | URL path on the Tailscale listener |
-| `services.<name>.public` | Optional per-service override of `defaults.public` |
+| `services.<name>.public` | Optional per-service override of `defaults.public`: `true`, `false`, or how long to stay public after `pier up`, such as `2h` |
 | `services.<name>.protocol` | Optional per-service `http` or `https` |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
 | `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
@@ -130,6 +130,21 @@ A replay goes straight to the service's current `target`, not through Tailscale 
 - `public: true` → Tailscale Funnel on HTTPS port `443`
 
 Serve and Funnel never share a listener. Changing `public` (or using `pier share` / `pier unshare`) plans a delete on the old listener and a create on the new one.
+
+### Public for a while
+
+```yaml
+services:
+  demo:
+    target: localhost:3000
+    public: 2h
+```
+
+`public: 2h` makes the service public through Funnel for two hours from each `pier up`, then private again on the tailnet listener. `pier status` shows the time left, such as `true (1h12m left)`. Running `pier up` again starts a fresh two hours. The window is between 1m and 168h.
+
+Pier's background process closes the window when it ends, even with no terminal open. If Tailscale is unreachable at that moment, it retries every 30 seconds and says so in `pier doctor`. If this machine is asleep, the window closes as soon as it wakes. If the machine restarts before the window ends, Funnel stays on until Pier runs again: turn on `local.autostart`, or run any `pier up`.
+
+`pier share` and `pier unshare` still override a timed service, with no time limit.
 
 ## Local names
 

@@ -227,10 +227,11 @@ func shapingOf(t *state.Throttle) localproxy.Shaping {
 	return localproxy.Shaping{Latency: time.Duration(t.LatencyMS) * time.Millisecond, Down: t.Down, Up: t.Up}
 }
 
-// anyTaps reports whether some saved project needs the daemon for its taps.
-func anyTaps(saved []state.ProjectState) bool {
+// daemonWork reports whether some saved project needs the daemon besides its
+// .local names: for taps, or to close a public window.
+func daemonWork(saved []state.ProjectState) bool {
 	for _, project := range saved {
-		if project.Path != "" && len(project.Taps) > 0 {
+		if project.Path != "" && (len(project.Taps) > 0 || project.OwnsTimedPublic()) {
 			return true
 		}
 	}

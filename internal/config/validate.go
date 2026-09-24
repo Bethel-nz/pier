@@ -77,6 +77,9 @@ func Validate(project Project) []ValidationError {
 		if _, err := resolveThrottle(service.throttle); err != nil {
 			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))
 		}
+		if service.publicProblem != "" {
+			errors = append(errors, serviceError(service.Name, "public", service.publicProblem))
+		}
 		if _, err := resolveCapture(service.capture); err != nil {
 			errors = append(errors, serviceError(service.Name, "capture", err.Error()))
 		}
