@@ -88,6 +88,8 @@ services:
 
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
+Own a domain on Cloudflare? `cloudflare: app.example.com` serves the service there through a Cloudflare Tunnel. Pier drives `cloudflared` for the login, tunnel, DNS, and process. See [Cloudflare](docs/configuration.md#cloudflare).
+
 Databases and other non-HTTP servers use `protocol: tcp`. Pier forwards the raw connection over the tailnet and the LAN, so `psql -h db.myapp.local` just works. See [TCP services](docs/configuration.md#tcp-services).
 
 ## Local names

@@ -41,6 +41,7 @@ services:
 | `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)) |
 | `services.<name>.listen` | TCP only: the port clients connect to, by default the target's port |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
+| `services.<name>.cloudflare` | Optional public hostname on a Cloudflare zone you own, such as `app.example.com` (see [Cloudflare](#cloudflare)) |
 | `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
 | `services.<name>.dir` | Folder `run` starts in, relative to the project root |
 | `services.<name>.env` | Extra environment variables for `run` |
@@ -172,6 +173,39 @@ Pier forwards the raw connection, byte for byte: on the tailnet through `tailsca
 - TCP services are private: `public`, `path`, `throttle`, and `capture` are HTTP features and are rejected.
 - The LAN relay skips any address where something already answers on that port, such as a server listening on every interface.
 - `pier open` refuses a TCP service; `pier copy` gives you the address.
+
+## Cloudflare
+
+Serve a service on a domain you own, through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). Pier drives `cloudflared`, which you install once; there is no API token to create.
+
+```yaml
+services:
+  web:
+    target: localhost:3000
+    cloudflare: app.example.com
+```
+
+```
+cloudflare   created tunnel pier-myapp
+cloudflare   app.example.com → tunnel pier-myapp
+public web  https://app.example.com/  (cloudflare)
+```
+
+On `pier up`, Pier:
+
+1. runs `cloudflared tunnel login` if this machine has never logged in, which opens the browser to pick your zone,
+2. finds or creates the tunnel `pier-<project name>`, keeping its secret in Pier's config folder,
+3. points each new hostname at the tunnel with a CNAME (`cloudflared tunnel route dns`),
+4. writes `.pier/cloudflared.yml` and has its background process run `cloudflared` with it, restarting it if it exits.
+
+The hostname is public on the internet. A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile. Tailscale is not needed for Cloudflare, and a service can have both.
+
+- A hostname that already has a DNS record is refused. `pier up --force` replaces the record.
+- Hostnames must be on the zone you picked when you logged in.
+- Throttle and capture apply to Cloudflare traffic too.
+- Your app sees the public hostname in `Host`. Dev servers that check it, such as Vite, need it allowed.
+- `pier status` and `pier doctor` show the tunnel as connecting, connected, or failed with `cloudflared`'s error. Its log is `.pier/cloudflared.log`.
+- `cloudflared` cannot delete DNS records. To remove everything, delete the CNAME in the Cloudflare dashboard and run `cloudflared tunnel delete pier-<project name>`.
 
 ## Local names
 
