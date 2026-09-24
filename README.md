@@ -88,6 +88,8 @@ services:
 
 `public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
 
+Databases and other non-HTTP servers use `protocol: tcp`. Pier forwards the raw connection over the tailnet and the LAN, so `psql -h db.myapp.local` just works. See [TCP services](docs/configuration.md#tcp-services).
+
 ## Local names
 
 Give a service a `local` name ending in `.local`, and `pier up` serves it over HTTPS to this machine and every phone, tablet, and laptop on the same network:

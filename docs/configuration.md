@@ -38,7 +38,8 @@ services:
 | `services.<name>.target` | Host and port of the local process |
 | `services.<name>.path` | URL path on the Tailscale listener |
 | `services.<name>.public` | Optional per-service override of `defaults.public`: `true`, `false`, or how long to stay public after `pier up`, such as `2h` |
-| `services.<name>.protocol` | Optional per-service `http` or `https` |
+| `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)) |
+| `services.<name>.listen` | TCP only: the port clients connect to, by default the target's port |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
 | `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
 | `services.<name>.dir` | Folder `run` starts in, relative to the project root |
@@ -147,6 +148,30 @@ services:
 Pier's background process closes the window when it ends, even with no terminal open. If Tailscale is unreachable at that moment, it retries every 30 seconds and says so in `pier doctor`. If this machine is asleep, the window closes as soon as it wakes. If the machine restarts before the window ends, Funnel stays on until Pier runs again: turn on `local.autostart`, or run any `pier up`.
 
 `pier share` and `pier unshare` still override a timed service, with no time limit.
+
+## TCP services
+
+A database, cache, or any other non-HTTP server can be reached by name too:
+
+```yaml
+services:
+  db:
+    protocol: tcp
+    target: localhost:5432
+    local: db.myapp.local
+```
+
+```
+local  db  tcp://db.myapp.local:5432
+lan    db  tcp://192.168.1.20:5432  (any device on this network, no setup)
+```
+
+Pier forwards the raw connection, byte for byte: on the tailnet through `tailscale serve --tcp` (`pier status` shows `tcp://machine.tailnet.ts.net:5432`), and on the LAN through a relay on this machine's network addresses. Point any client at it, such as `psql -h db.myapp.local`.
+
+- `listen` sets the port clients use, such as `listen: 15432`. It defaults to the target's port, must be unique in the project, and cannot be `443` or `8443`, which Pier keeps for HTTPS.
+- TCP services are private: `public`, `path`, `throttle`, and `capture` are HTTP features and are rejected.
+- The LAN relay skips any address where something already answers on that port, such as a server listening on every interface.
+- `pier open` refuses a TCP service; `pier copy` gives you the address.
 
 ## Local names
 
