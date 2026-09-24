@@ -81,7 +81,7 @@ func Validate(project Project) []ValidationError {
 				claimedDomains[service.Domain] = service.Name
 			}
 		}
-		errors = append(errors, cloudflareErrors(service, claimedHosts)...)
+		errors = append(errors, providerErrors(service, claimedHosts)...)
 		errors = append(errors, runErrors(service)...)
 		if _, err := resolveThrottle(service.throttle); err != nil {
 			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))
@@ -93,6 +93,7 @@ func Validate(project Project) []ValidationError {
 			errors = append(errors, serviceError(service.Name, "capture", err.Error()))
 		}
 	}
+	errors = append(errors, domainErrors(project)...)
 	if (project.Local.CertFile == "") != (project.Local.KeyFile == "") {
 		errors = append(errors, ValidationError{Field: "local.tls", Message: "needs both cert and key"})
 	}

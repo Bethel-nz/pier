@@ -404,7 +404,7 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 		fmt.Fprintf(tab, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			service.Name,
 			displayTarget(service),
-			service.Path,
+			orDash(service.Path),
 			publicColumn(service),
 			strconv.FormatBool(service.Paused),
 			healthStatus,
@@ -416,7 +416,7 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 	writeCloudflare(w, services)
 }
 
-// writeCloudflare prints one line per cloudflare: hostname: its URL when the
+// writeCloudflare prints one line per Cloudflare service: its URL when the
 // tunnel is connected, otherwise its state and why.
 func writeCloudflare(w io.Writer, services []app.ServiceInfo) {
 	for _, service := range services {

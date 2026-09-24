@@ -69,7 +69,7 @@ type UpResult struct {
 	TailscaleSkipped string
 	// Warnings are public routes on this machine that this project does not manage.
 	Warnings []string
-	// Cloudflare is what this run set up in Cloudflare for cloudflare: hostnames.
+	// Cloudflare is what this run set up in Cloudflare for provider: cloudflare services.
 	Cloudflare TunnelSetup
 }
 
@@ -1192,7 +1192,7 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 			Cloudflare: service.Cloudflare,
 		}
 		if !service.OnTailscale() {
-			info.URL = "" // its URL is the Cloudflare one
+			info.URL, info.Path = "", "" // no Tailscale route; its URL is the Cloudflare one
 		}
 		if service.Domain != "" && paused[service.Name] {
 			info.LocalState = "paused"

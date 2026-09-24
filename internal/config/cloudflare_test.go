@@ -5,44 +5,47 @@ import (
 	"testing"
 )
 
-func TestCloudflareHostnames(t *testing.T) {
-	project, err := Normalize(Config{Version: 1, Name: "My App", Services: map[string]Service{
-		"web": {Target: "localhost:3000", Cloudflare: "App.Example.com."},
-		// Both at "/" is fine: neither claims a Tailscale path.
-		"api": {Target: "localhost:4000", Cloudflare: "api.example.com"},
-	}, Defaults: Defaults{Public: true}})
+func TestCloudflareProvider(t *testing.T) {
+	project, err := Normalize(Config{Version: 1, Name: "My App", Domain: "Example.com.", Defaults: Defaults{Public: true}, Services: map[string]Service{
+		"web":   {Target: "localhost:3000", Provider: "cloudflare"},
+		"api":   {Target: "localhost:4000", Provider: "Cloudflare", Hostname: "api-v2"},
+		"full":  {Target: "localhost:4001", Provider: "cloudflare", Hostname: "status.example.com"},
+		"admin": {Target: "localhost:5000"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if errs := Validate(project); len(errs) != 0 {
 		t.Fatalf("valid project reported %v", errs)
 	}
-	if !project.HasCloudflare() {
-		t.Fatal("HasCloudflare = false")
-	}
+	want := map[string]string{"web": "web.example.com", "api": "api-v2.example.com", "full": "status.example.com", "admin": ""}
 	for _, service := range project.Services {
-		if service.Name == "web" && service.Cloudflare != "app.example.com" {
-			t.Fatalf("web hostname = %q", service.Cloudflare)
+		if service.Cloudflare != want[service.Name] {
+			t.Errorf("%s hostname = %q, want %q", service.Name, service.Cloudflare, want[service.Name])
 		}
-		if service.OnTailscale() || service.Public {
-			t.Fatalf("%s is on Tailscale (public=%v); want Cloudflare only", service.Name, service.Public)
+		cloudflare := want[service.Name] != ""
+		if service.OnTailscale() == cloudflare {
+			t.Errorf("%s on Tailscale = %v", service.Name, service.OnTailscale())
+		}
+		// Cloudflare services are public there, not through Tailscale Funnel.
+		if cloudflare && service.Public {
+			t.Errorf("%s inherited defaults.public", service.Name)
 		}
 	}
-	if name := project.TunnelName(); name != "pier-my-app" {
-		t.Fatalf("tunnel name = %q", name)
+	if !project.HasCloudflare() || project.TunnelName() != "pier-my-app" {
+		t.Fatalf("HasCloudflare = %v, tunnel = %q", project.HasCloudflare(), project.TunnelName())
 	}
 }
 
-func TestCloudflareRejectsBadHostnames(t *testing.T) {
-	project, err := Normalize(Config{Version: 1, Name: "p", Services: map[string]Service{
-		"url":   {Target: "localhost:3001", Cloudflare: "https://app.example.com"},
-		"local": {Target: "localhost:3002", Cloudflare: "app.local"},
-		"bare":  {Target: "localhost:3003", Cloudflare: "example"},
-		"label": {Target: "localhost:3004", Cloudflare: "under_score.example.com"},
-		"db":    {Target: "localhost:5432", Protocol: "tcp", Cloudflare: "db.example.com"},
-		"one":   {Target: "localhost:3005", Cloudflare: "same.example.com"},
-		"two":   {Target: "localhost:3006", Cloudflare: "same.example.com"},
-		"both":  {Target: "localhost:3007", Cloudflare: "both.example.com", Path: "/both", Public: PublicFlag(true)},
+func TestCloudflareProviderErrors(t *testing.T) {
+	project, err := Normalize(Config{Version: 1, Name: "p", Domain: "example.com", Services: map[string]Service{
+		"odd":   {Target: "localhost:3001", Provider: "ngrok"},
+		"label": {Target: "localhost:3002", Provider: "cloudflare", Hostname: "under_score"},
+		"db":    {Target: "localhost:5432", Protocol: "tcp", Provider: "cloudflare"},
+		"one":   {Target: "localhost:3005", Provider: "cloudflare", Hostname: "same"},
+		"two":   {Target: "localhost:3006", Provider: "cloudflare", Hostname: "same"},
+		"both":  {Target: "localhost:3007", Provider: "cloudflare", Path: "/both", Public: PublicFlag(true)},
+		"tail":  {Target: "localhost:3008", Hostname: "tail"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -52,17 +55,36 @@ func TestCloudflareRejectsBadHostnames(t *testing.T) {
 		got[e.Service+"."+e.Field] = e.Message
 	}
 	for key, want := range map[string]string{
-		"url.cloudflare":   "not a URL",
-		"local.cloudflare": "zone you own",
-		"bare.cloudflare":  "include the domain",
-		"label.cloudflare": "lowercase letters",
-		"db.cloudflare":    "HTTP services only",
-		"two.cloudflare":   `service "one"`,
-		"both.path":        "Tailscale setting",
-		"both.public":      "served by Cloudflare only",
+		"odd.provider":   "tailscale or cloudflare",
+		"label.hostname": "lowercase letters",
+		"db.provider":    "HTTP services only",
+		"two.hostname":   `service "one"`,
+		"both.path":      "Tailscale setting",
+		"both.public":    "always public",
+		"tail.hostname":  "provider: cloudflare only",
 	} {
 		if !strings.Contains(got[key], want) {
 			t.Errorf("%s = %q, want it to mention %q", key, got[key], want)
+		}
+	}
+}
+
+func TestCloudflareNeedsADomain(t *testing.T) {
+	for domain, want := range map[string]string{
+		"":               "add domain:",
+		"example":        "full domain",
+		"https://ex.com": "not a URL",
+		"myapp.local":    "Cloudflare account",
+	} {
+		project, err := Normalize(Config{Version: 1, Name: "p", Domain: domain, Services: map[string]Service{
+			"web": {Target: "localhost:3000", Provider: "cloudflare"},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs := Validate(project)
+		if len(errs) != 1 || !strings.Contains(errs[0].Message, want) {
+			t.Errorf("domain %q: errors = %v, want one mentioning %q", domain, errs, want)
 		}
 	}
 }

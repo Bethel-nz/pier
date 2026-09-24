@@ -51,7 +51,7 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 		return nil, setup, nil
 	}
 	if s.tunnels == nil {
-		return nil, setup, errors.New("Pier cannot serve cloudflare: hostnames from here; run pier up")
+		return nil, setup, errors.New("Pier cannot serve provider: cloudflare services from here; run pier up")
 	}
 	binary, err := s.tunnels.Binary()
 	if err != nil {
@@ -119,7 +119,7 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 	return tunnel, setup, nil
 }
 
-// cloudflareWarnings explains what stops the project's cloudflare: hostnames
+// cloudflareWarnings explains what stops the project's Cloudflare services
 // from being served, for pier doctor.
 func (s *Service) cloudflareWarnings(projectID string) []string {
 	if s.tunnels == nil {

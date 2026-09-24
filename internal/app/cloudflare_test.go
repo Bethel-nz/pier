@@ -55,9 +55,10 @@ func (f *fakeTunnels) RouteDNS(_ context.Context, id, host string, overwrite boo
 func cloudflareEnv(t *testing.T) (*fakeEnv, *fakeTunnels, *fakeLocal) {
 	t.Helper()
 	env := newEnv()
+	env.raw.Domain = "example.com"
 	env.raw.Services = map[string]config.Service{
-		"web": {Target: "localhost:3000", Cloudflare: "app.example.com"},
-		"api": {Target: "localhost:4000", Cloudflare: "api.example.com", Throttle: &config.Throttle{Preset: "3g"}},
+		"web": {Target: "localhost:3000", Provider: "cloudflare", Hostname: "app"},
+		"api": {Target: "localhost:4000", Provider: "cloudflare", Throttle: &config.Throttle{Preset: "3g"}},
 		// The only service on Tailscale.
 		"docs": {Target: "localhost:5000", Path: "/docs"},
 	}
