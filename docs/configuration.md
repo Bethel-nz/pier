@@ -45,7 +45,7 @@ services:
 | `services.<name>.env` | Extra environment variables for `run` |
 | `services.<name>.watch` | Globs, relative to `dir`, whose changes restart `run` |
 | `services.<name>.throttle` | Slow the service to `slow-3g`, `3g`, `4g`, or `{latency, down, up}` |
-| `services.<name>.capture` | Keep the service's requests this long for `pier replay`, such as `24h` |
+| `services.<name>.capture` | Keep the service's requests this long for `pier replay`, such as `2min`, `1hr`, `24h`, or `7d` |
 
 v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
 
@@ -107,7 +107,9 @@ services:
 
 Latency is added once per request. Bandwidth paces request and response bodies. WebSocket messages are not slowed.
 
-`capture` keeps each request and its response: method, path, headers, and up to 1 MB of each body, in `.pier/capture.db` (SQLite, gitignored with `.pier/`). `Authorization`, `Cookie`, `Set-Cookie`, and `Proxy-Authorization` are stored as `[redacted]`. Requests older than `capture` are deleted every minute, and all of a service's requests go once its `capture` is removed. `pier clean` deletes every project's capture file.
+`capture` keeps each request and its response: method, path, headers, and up to 1 MB of each body, in `.pier/capture.db` (SQLite, gitignored with `.pier/`). `Authorization`, `Cookie`, `Set-Cookie`, and `Proxy-Authorization` are stored as `[redacted]`. A pruning routine in Pier's background process deletes requests older than `capture` every minute, whether or not anything is being captured at that moment, and deletes all of a service's requests once its `capture` is removed. `capture` can be 1 minute to 30 days. `pier clean` deletes every project's capture file.
+
+Lengths of time in `pier.yaml` (`capture`, `public`) take Go's forms (`90s`, `2m`, `1h30m`) or a number and a unit: `2min`, `1hr`, `24 hours`, `7d`, `3 days`, `2w`.
 
 Both need Pier to see the traffic. Tailscale sends requests straight to the service, so a throttled or captured service gets a tap: a loopback port in Pier's background process that Tailscale Serve and Funnel point at instead. The tap applies the throttle and capture, then forwards to `target` with Tailscale's `X-Forwarded-*` headers intact. The service's `.local` name goes through the same throttle and capture. Tap ports are saved and reused, so repeated `pier up` runs don't move Tailscale routes.
 
@@ -140,7 +142,7 @@ services:
     public: 2h
 ```
 
-`public: 2h` makes the service public through Funnel for two hours from each `pier up`, then private again on the tailnet listener. `pier status` shows the time left, such as `true (1h12m left)`. Running `pier up` again starts a fresh two hours. The window is between 1m and 168h.
+`public: 2h` makes the service public through Funnel for two hours from each `pier up`, then private again on the tailnet listener. `pier status` shows the time left, such as `true (1h12m left)`. Running `pier up` again starts a fresh two hours. The window is between 1 minute and 7 days, written like any length of time in `pier.yaml` (below).
 
 Pier's background process closes the window when it ends, even with no terminal open. If Tailscale is unreachable at that moment, it retries every 30 seconds and says so in `pier doctor`. If this machine is asleep, the window closes as soon as it wakes. If the machine restarts before the window ends, Funnel stays on until Pier runs again: turn on `local.autostart`, or run any `pier up`.
 

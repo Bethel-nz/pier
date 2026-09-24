@@ -122,9 +122,9 @@ func resolveCapture(text string) (time.Duration, error) {
 	if text == "" {
 		return 0, nil
 	}
-	keep, err := time.ParseDuration(text)
+	keep, err := ParseSpan(text)
 	if err != nil || keep < minCapture || keep > maxCapture {
-		return 0, fmt.Errorf("%q must be how long to keep requests, from 1m to 720h, such as 24h", text)
+		return 0, fmt.Errorf("%q must be how long to keep requests, from 1min to 30d, such as 2min, 1hr, 24h, or 7d", text)
 	}
 	return keep, nil
 }
