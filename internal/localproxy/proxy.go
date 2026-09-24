@@ -183,12 +183,32 @@ func (p *Proxy) reverseProxy(rt *route) *httputil.ReverseProxy {
 				pr.Out.Header.Set("X-Forwarded-Port", port)
 			}
 			pr.Out.Header.Set(hopHeader, strconv.Itoa(hops+1))
+			translateOrigin(pr, rt.target)
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			writePage(w, http.StatusBadGateway, rt.Service+" is not responding",
 				"Pier routes <b>"+escape(rt.Host)+"</b> to <code>"+escape(rt.target.Host)+"</code>, but nothing answered there. Start the service, then reload.")
 		},
 	}
+}
+
+// translateOrigin makes a same-origin read look same-origin to the upstream.
+//
+// Dev servers guard their internals by Origin (Next.js blocks /_next and its
+// HMR socket for origins other than localhost), and Pier already rewrites Host
+// to the target. When the browser says a GET or HEAD came from this very .local
+// page, the Origin is translated the same way. Anything else passes unchanged:
+// a foreign origin still gets blocked, and state-changing requests keep the
+// public origin so CSRF checks can compare it with X-Forwarded-Host.
+func translateOrigin(pr *httputil.ProxyRequest, target *url.URL) {
+	if pr.In.Method != http.MethodGet && pr.In.Method != http.MethodHead {
+		return
+	}
+	origin, err := url.Parse(pr.In.Header.Get("Origin"))
+	if err != nil || origin.Scheme != "https" || !strings.EqualFold(origin.Host, pr.In.Host) {
+		return
+	}
+	pr.Out.Header.Set("Origin", target.Scheme+"://"+target.Host)
 }
 
 func (p *Proxy) notFound(w http.ResponseWriter, r *http.Request, host string) {

@@ -218,3 +218,33 @@ func TestListenFallsBackToTheNextPort(t *testing.T) {
 		t.Fatalf("port = %d, want fallback %d", port, freePort)
 	}
 }
+
+func TestOriginIsTranslatedOnlyForSameOriginReads(t *testing.T) {
+	seen := make(chan string, 1)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("Origin")
+	}))
+	defer up.Close()
+	p := newProxy(t, up.URL)
+	upstreamOrigin := "http://" + strings.TrimPrefix(up.URL, "http://")
+
+	cases := []struct {
+		name, method, origin, want string
+	}{
+		{"same-origin GET (dev assets, HMR socket)", http.MethodGet, "https://my-app.local", upstreamOrigin},
+		{"same-origin POST keeps the public origin for CSRF checks", http.MethodPost, "https://my-app.local", "https://my-app.local"},
+		{"foreign origin is never rewritten", http.MethodGet, "https://evil.example", "https://evil.example"},
+		{"plain-HTTP look-alike is not same-origin", http.MethodGet, "http://my-app.local", "http://my-app.local"},
+		{"no origin stays absent", http.MethodGet, "", ""},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, "https://my-app.local/_next/static/chunk.js", nil)
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		p.HTTPS().ServeHTTP(httptest.NewRecorder(), req)
+		if got := <-seen; got != tc.want {
+			t.Errorf("%s: upstream Origin = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
