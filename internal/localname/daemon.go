@@ -61,12 +61,13 @@ func Run(ctx context.Context, projects *state.Store) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	responderDone := make(chan struct{})
-	if responder, err := mdns.Listen(mdns.Options{}); err != nil {
+	if names, kind, err := newPublisher(d.beat.HTTPSPort); err != nil {
 		d.beat.MDNSError = err.Error()
 		close(responderDone)
 	} else {
-		d.responder = responder
-		go func() { _ = responder.Serve(ctx); close(responderDone) }()
+		d.responder = names
+		d.beat.MDNS = kind
+		go func() { _ = names.Serve(ctx); close(responderDone) }()
 	}
 
 	tick := time.NewTicker(time.Second)
@@ -103,7 +104,7 @@ type loadedCert struct {
 type daemon struct {
 	projects  *state.Store
 	proxy     *localproxy.Proxy
-	responder *mdns.Responder
+	responder publisher
 	servers   []*http.Server
 	listeners []*localproxy.Listeners
 	certs     map[string]loadedCert
@@ -204,7 +205,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 			mdnsState[status.Name] = status
 		}
 		if err := d.responder.SendError(); err != nil {
-			warnings = append(warnings, blockedHint(err))
+			warnings = append(warnings, d.sendHint(err))
 		}
 	}
 	for i := range statuses {
@@ -267,6 +268,14 @@ func (d *daemon) refreshCA() {
 	}
 	d.caPEM = contents
 	d.proxy.SetCA(contents)
+}
+
+// sendHint explains a publishing failure: other devices cannot resolve names.
+func (d *daemon) sendHint(err error) string {
+	if d.beat.MDNS != "pier" {
+		return "other devices cannot resolve .local names: " + d.beat.MDNS + " rejected a name (" + err.Error() + ")"
+	}
+	return blockedHint(err)
 }
 
 // blockedHint explains an mDNS send failure: other devices cannot resolve names.

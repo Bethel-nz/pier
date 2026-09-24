@@ -40,6 +40,7 @@ type Heartbeat struct {
 	UpdatedAt time.Time    `json:"updatedAt"`
 	HTTPSPort int          `json:"httpsPort"`
 	HTTPPort  int          `json:"httpPort,omitempty"`
+	MDNS      string       `json:"mdns,omitempty"` // who publishes names: pier, mDNSResponder, or the Windows DNS client
 	MDNSError string       `json:"mdnsError,omitempty"`
 	Names     []NameStatus `json:"names"`
 	Warnings  []string     `json:"warnings,omitempty"`

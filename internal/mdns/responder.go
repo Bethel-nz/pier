@@ -651,6 +651,30 @@ func lanInterfaces() map[int]netIface {
 	return out
 }
 
+// LANAddress is the IPv4 address other devices on the LAN should use for this
+// machine: the one on the default route when that is a LAN interface (not a
+// VPN), else the first LAN address. It is nil when the machine is offline.
+func LANAddress() net.IP {
+	var lan []net.IP
+	for _, iface := range lanInterfaces() {
+		for _, addr := range iface.addrs {
+			lan = append(lan, addr.IP)
+		}
+	}
+	if len(lan) == 0 {
+		return nil
+	}
+	if route := routeTo(net.IPv4(192, 0, 2, 1)); route != nil { // no packet is sent
+		for _, ip := range lan {
+			if ip.Equal(route) {
+				return ip
+			}
+		}
+	}
+	sort.Slice(lan, func(i, j int) bool { return lan[i].String() < lan[j].String() })
+	return lan[0]
+}
+
 func isVirtual(name string) bool {
 	lower := strings.ToLower(name)
 	for _, prefix := range virtualPrefixes {

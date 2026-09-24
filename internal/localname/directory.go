@@ -89,6 +89,7 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string) (Repo
 		if running {
 			_ = requestStop(beat.PID)
 		}
+		sweepPublishers() // records a crashed daemon left with the system responder
 		return report, nil
 	}
 	if !running || beat.Build != buildID() {
