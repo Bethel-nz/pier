@@ -12,3 +12,6 @@ func remove(*x509.Certificate, string) error { return ErrUnsupported }
 
 // BrowserStoresNeedCertutil is false where Pier does not manage trust.
 func BrowserStoresNeedCertutil() bool { return false }
+
+// browsersTrust is true: browsers here use the system store.
+func browsersTrust(string) bool { return true }

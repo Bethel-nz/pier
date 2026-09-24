@@ -21,3 +21,6 @@ func remove(ca *x509.Certificate, _ string) error {
 
 // BrowserStoresNeedCertutil is false on Windows: browsers use the system store.
 func BrowserStoresNeedCertutil() bool { return false }
+
+// browsersTrust is true: browsers here use the system store.
+func browsersTrust(string) bool { return true }

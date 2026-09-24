@@ -148,8 +148,29 @@ func addToBrowsers(caPath string) {
 		return
 	}
 	for _, db := range nssDatabases() {
+		// Replace, so a renewed CA never sits next to the old one under one nickname.
+		_ = quietRun("certutil", "-d", "sql:"+db, "-D", "-n", nssNickname)
 		_ = quietRun("certutil", "-d", "sql:"+db, "-A", "-t", "C,,", "-n", nssNickname, "-i", caPath)
 	}
+}
+
+// browsersTrust reports whether every NSS store holds this exact CA. Without
+// certutil Pier cannot look or fix it, so doctor reports that instead.
+func browsersTrust(caPath string) bool {
+	if _, err := exec.LookPath("certutil"); err != nil {
+		return true
+	}
+	want, err := os.ReadFile(caPath)
+	if err != nil {
+		return false
+	}
+	for _, db := range nssDatabases() {
+		have, err := exec.Command("certutil", "-d", "sql:"+db, "-L", "-n", nssNickname, "-a").Output()
+		if err != nil || !sameCertificate(want, have) {
+			return false
+		}
+	}
+	return true
 }
 
 func removeFromBrowsers() {

@@ -111,10 +111,19 @@ func (d *Directory) Status() Report {
 	if ca, err := certs.LoadCA(d.caDir, d.now()); err == nil {
 		report.CAPath = ca.CertPath()
 		report.CATrusted = trust.IsTrusted(ca.Cert, ca.CertPath())
+		report.Warnings = append(report.Warnings, browserStoreWarnings()...)
 	}
 	beat, err := readHeartbeat()
 	d.fill(&report, beat, err == nil && beat.Fresh(d.now()))
 	return report
+}
+
+// browserStoreWarnings explains browsers Pier cannot update by itself.
+func browserStoreWarnings() []string {
+	if !trust.BrowserStoresNeedCertutil() {
+		return nil
+	}
+	return []string{"Chrome and Firefox here use their own certificate store. Install NSS tools (libnss3-tools or nss-tools), then run pier trust"}
 }
 
 // Trust installs the CA, creating it first if needed.
@@ -151,6 +160,7 @@ func (d *Directory) prepare(root string, names []string, report *Report) error {
 		return fmt.Errorf("Pier could not issue a certificate for %s: %w", root, err)
 	}
 	report.CertIssued = issued
+	report.Warnings = append(report.Warnings, browserStoreWarnings()...)
 	report.CATrusted = trust.IsTrusted(ca.Cert, ca.CertPath())
 	if report.CATrusted {
 		return nil

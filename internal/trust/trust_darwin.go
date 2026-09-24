@@ -40,3 +40,6 @@ func loginKeychain() string {
 
 // BrowserStoresNeedCertutil is false on macOS: browsers use the keychain.
 func BrowserStoresNeedCertutil() bool { return false }
+
+// browsersTrust is true: browsers here use the system store.
+func browsersTrust(string) bool { return true }

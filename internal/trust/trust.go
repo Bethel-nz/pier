@@ -7,6 +7,7 @@ import (
 	"crypto/sha1" //nolint:gosec // Windows and macOS identify certificates by SHA-1 thumbprint.
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"os"
 	"os/exec"
@@ -21,9 +22,14 @@ var ErrUnsupported = errors.New("Pier cannot add certificates to this system's t
 
 const markerFile = "trusted"
 
-// IsTrusted reports whether the CA at caPath is in the system trust store.
-// A marker holding the CA fingerprint skips the slower OS check.
+// IsTrusted reports whether the CA at caPath is in the system trust store and
+// in every browser store Pier can update. A marker holding the CA fingerprint
+// skips the slower OS check; browser stores are always checked because a
+// browser can create its store after Pier trusted the CA.
 func IsTrusted(ca *x509.Certificate, caPath string) bool {
+	if !browsersTrust(caPath) {
+		return false
+	}
 	if readMarker(caPath) == certs.Fingerprint(ca) {
 		return true
 	}
@@ -83,4 +89,12 @@ var quiet = func(name string, args ...string) bool {
 func sameFile(path string, contents []byte) bool {
 	existing, err := os.ReadFile(path)
 	return err == nil && bytes.Equal(bytes.TrimSpace(existing), bytes.TrimSpace(contents))
+}
+
+// sameCertificate compares the first certificate in two PEM blobs, ignoring
+// line endings and wrapping differences between tools.
+func sameCertificate(a, b []byte) bool {
+	blockA, _ := pem.Decode(a)
+	blockB, _ := pem.Decode(bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")))
+	return blockA != nil && blockB != nil && bytes.Equal(blockA.Bytes, blockB.Bytes)
 }
