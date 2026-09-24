@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -193,5 +194,79 @@ func TestCopyLocalReturnsTheServedURL(t *testing.T) {
 	}
 	if _, err := svc.Copy(context.Background(), CopyRequest{Start: env.project.Root, Service: "api", Local: true}); err == nil {
 		t.Fatal("Copy(--local) of a name that is not live should explain why")
+	}
+}
+
+func tailscaleDown(env *fakeEnv) {
+	env.checkErr = errors.New("tailscale is not running")
+}
+
+func TestUpServesLocalNamesWithoutTailscale(t *testing.T) {
+	env := domainEnv()
+	tailscaleDown(env)
+	local := &fakeLocal{report: liveReport("myapp.local", "api.myapp.local")}
+	svc := env.service()
+	svc.EnableLocalNames(local)
+
+	result, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatalf("Up() = %v, want local names served without Tailscale", err)
+	}
+	if result.TailscaleSkipped == "" || env.mutated || env.routeReads != 0 {
+		t.Fatalf("skipped=%q mutated=%v routeReads=%d, want Tailscale left alone", result.TailscaleSkipped, env.mutated, env.routeReads)
+	}
+	if len(local.syncs) != 1 || len(local.syncs[0]) != 2 {
+		t.Fatalf("Sync = %v, want both names", local.syncs)
+	}
+	web := lookupService(result.Services, "web")
+	if web.URL != "" || web.LocalURL != "https://myapp.local/" {
+		t.Fatalf("web urls = %q / %q", web.URL, web.LocalURL)
+	}
+}
+
+func TestUpWithoutTailscaleOrLocalNamesStillFails(t *testing.T) {
+	env := newEnv()
+	tailscaleDown(env)
+	_, err := env.service().Up(context.Background(), UpRequest{Start: env.project.Root})
+	var prerequisite *PrerequisiteError
+	if !errors.As(err, &prerequisite) {
+		t.Fatalf("Up() = %v, want PrerequisiteError", err)
+	}
+}
+
+func TestShareStillNeedsTailscale(t *testing.T) {
+	env := domainEnv()
+	tailscaleDown(env)
+	svc := env.service()
+	svc.EnableLocalNames(&fakeLocal{report: liveReport("myapp.local")})
+	_, err := svc.Share(context.Background(), ShareRequest{Start: env.project.Root, Service: "web"})
+	var prerequisite *PrerequisiteError
+	if !errors.As(err, &prerequisite) {
+		t.Fatalf("Share() = %v, want PrerequisiteError", err)
+	}
+	if env.saved != nil && env.saved.Overrides["web"] {
+		t.Fatal("public override saved without Tailscale")
+	}
+}
+
+func TestDownWithoutTailscaleWithdrawsNamesAndKeepsOwnedRoutes(t *testing.T) {
+	env := domainEnv()
+	tailscaleDown(env)
+	env.state.Path = env.project.Root
+	env.state.Routes = []state.Route{{Service: "web", HTTPSPort: 8443, Path: "/"}}
+	env.state.Domains = []state.LocalDomain{{Service: "web", Name: "myapp.local", Target: "http://127.0.0.1:3000"}}
+	local := &fakeLocal{}
+	svc := env.service()
+	svc.EnableLocalNames(local)
+
+	result, err := svc.Down(context.Background(), DownRequest{Start: env.project.Root})
+	if err != nil || result.TailscaleSkipped == "" {
+		t.Fatalf("Down() = %v skipped=%q", err, result.TailscaleSkipped)
+	}
+	if env.saved == nil || len(env.saved.Domains) != 0 || len(env.saved.Routes) != 1 {
+		t.Fatalf("saved = %+v, want names cleared and the owned route remembered", env.saved)
+	}
+	if len(local.syncs) != 1 || len(local.syncs[0]) != 0 {
+		t.Fatalf("Sync = %v", local.syncs)
 	}
 }

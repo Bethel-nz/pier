@@ -9,7 +9,7 @@ URL availability depends on the developer machine, the local service, and Tailsc
 ## Prerequisites
 
 - Go 1.25+ to build from source
-- Tailscale installed, running, and signed in
+- For tailnet and public URLs: Tailscale installed, running, and signed in. `local:` names need nothing else; when Tailscale is unavailable, `pier up` still serves them and reports Tailscale as skipped
 - [MagicDNS](https://tailscale.com/docs/features/magicdns) and [HTTPS certificates](https://tailscale.com/docs/features/https) enabled for Serve
 - [Funnel](https://tailscale.com/docs/features/tailscale-funnel) authorization on the device if any service uses `public: true`
 

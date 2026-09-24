@@ -46,6 +46,8 @@ type PlanRequest struct {
 type PlanResult struct {
 	Project project.Context
 	Plan    reconcile.Plan
+	// TailscaleSkipped says why Tailscale was not planned, when it is unavailable.
+	TailscaleSkipped string
 }
 
 // UpRequest applies the project plan to Tailscale.
@@ -62,6 +64,8 @@ type UpResult struct {
 	Services []ServiceInfo
 	// Local describes .local serving: certificate, trust, port, and names.
 	Local localname.Report
+	// TailscaleSkipped says why Tailscale was left alone. Local names were still served.
+	TailscaleSkipped string
 }
 
 // DownRequest removes routes owned by the current project.
@@ -73,6 +77,10 @@ type DownRequest struct {
 type DownResult struct {
 	Project project.Context
 	Plan    reconcile.Plan
+	// TailscaleSkipped says why Tailscale routes were left in place.
+	TailscaleSkipped string
+	// KeptRoutes counts owned Tailscale routes left in place because Tailscale was skipped.
+	KeptRoutes int
 }
 
 // StatusRequest reads configured services, health, and URLs.
@@ -390,8 +398,9 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 	if err != nil {
 		return result, err
 	}
-	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused), sess.actual, ownedRoutes(sess.project, sess.state), req.Force)
+	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused), ownedRoutes(sess.project, sess.state), req.Force)
 	result.Plan = sess.plan
+	result.TailscaleSkipped = sess.tailscaleSkipped
 	return result, s.reviewPlan(sess.plan, req.Force)
 }
 
@@ -407,8 +416,12 @@ func (s *Service) Down(ctx context.Context, req DownRequest) (DownResult, error)
 	if err != nil {
 		return result, err
 	}
-	sess.plan = s.planner(nil, sess.actual, ownedRoutes(sess.project, sess.state), false)
+	sess.plan = s.plannerFor(&sess, nil, ownedRoutes(sess.project, sess.state), false)
 	result.Plan = sess.plan
+	result.TailscaleSkipped = sess.tailscaleSkipped
+	if sess.tailscaleSkipped != "" {
+		result.KeptRoutes = len(sess.state.Routes)
+	}
 	if err := s.reviewPlan(sess.plan, false); err != nil {
 		return result, err
 	}
@@ -471,6 +484,9 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 		overrides[req.Service] = true
 		return nil
 	}, req.Service)
+	if err == nil && up.TailscaleSkipped != "" {
+		err = &PrerequisiteError{Err: fmt.Errorf("sharing needs Tailscale Funnel: %s", strings.TrimPrefix(up.TailscaleSkipped, "Pier cannot use Tailscale: "))}
+	}
 	return ShareResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
 }
 
@@ -480,6 +496,9 @@ func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResul
 		delete(overrides, req.Service)
 		return nil
 	}, req.Service)
+	if err == nil && up.TailscaleSkipped != "" {
+		err = &PrerequisiteError{Err: fmt.Errorf("unsharing needs Tailscale: %s", strings.TrimPrefix(up.TailscaleSkipped, "Pier cannot use Tailscale: "))}
+	}
 	return UnshareResult{Project: up.Project, Plan: up.Plan, Service: lookupService(up.Services, req.Service)}, err
 }
 
@@ -652,8 +671,9 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict boo
 		}
 	}
 	services := effectiveServices(sess.cfg, overrides)
-	sess.plan = s.planner(desiredRoutes(sess.project, sess.cfg, overrides, paused), sess.actual, ownedRoutes(sess.project, sess.state), force)
+	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, overrides, paused), ownedRoutes(sess.project, sess.state), force)
 	result.Plan = sess.plan
+	result.TailscaleSkipped = sess.tailscaleSkipped
 	if err := s.reviewPlan(sess.plan, force); err != nil {
 		return result, err
 	}
@@ -678,6 +698,17 @@ type session struct {
 	dns     string
 	plan    reconcile.Plan
 	local   localname.Report
+	// tailscaleSkipped says why Tailscale was left alone, when it is unavailable
+	// and the project still has local names to serve.
+	tailscaleSkipped string
+}
+
+// plannerFor builds the Tailscale plan, or an empty one when Tailscale is skipped.
+func (s *Service) plannerFor(sess *session, desired, owned []reconcile.Route, force bool) reconcile.Plan {
+	if sess.tailscaleSkipped != "" {
+		return reconcile.Plan{}
+	}
+	return s.planner(desired, sess.actual, owned, force)
 }
 
 type loadedProject struct {
@@ -718,7 +749,17 @@ func (s *Service) prepare(ctx context.Context, start string) (session, error) {
 		return sess, err
 	}
 	if _, err := s.ts.Check(ctx); err != nil {
-		return sess, &PrerequisiteError{Err: err}
+		// Local names do not need Tailscale: serve them and report Tailscale as skipped.
+		if !hasDomains(loaded.cfg) {
+			return sess, &PrerequisiteError{Err: err}
+		}
+		sess.tailscaleSkipped = (&PrerequisiteError{Err: err}).Error()
+		st, loadErr := s.store.Load(loaded.project.ID)
+		if loadErr != nil {
+			return sess, fmt.Errorf("Pier could not load project state: %w", loadErr)
+		}
+		sess.state = st
+		return sess, nil
 	}
 	actual, err := s.ts.Routes(ctx)
 	if err != nil {
@@ -1099,6 +1140,9 @@ func hasDomains(cfg config.Project) bool {
 
 func serviceURL(dnsName string, httpsPort uint16, path string) string {
 	dnsName = strings.TrimSuffix(dnsName, ".")
+	if dnsName == "" {
+		return "" // Tailscale is not available, so there is no tailnet URL.
+	}
 	if path == "" {
 		path = "/"
 	}

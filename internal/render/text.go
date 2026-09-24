@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/Bethel-nz/pier/internal/app"
@@ -88,6 +89,10 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 	if err != nil {
 		return o.Error(err)
 	}
+	if result.TailscaleSkipped != "" {
+		writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
+		return nil
+	}
 	if len(result.Plan.Operations) == 0 && len(result.Plan.Conflicts) == 0 {
 		fmt.Fprintln(o.Out, "no changes")
 		return nil
@@ -101,7 +106,11 @@ func (o Options) Plan(result app.PlanResult, err error) error {
 func (o Options) Up(result app.UpResult, err error) error {
 	if o.JSON {
 		payload := JSONStatus{Services: jsonServices(result.Services), Local: jsonLocal(result.Services, result.Local)}
-		if writeErr := writeJSON(o.Out, "up", result.Project, payload, warningsFromPlan(result.Plan), jsonErrs(err)); writeErr != nil {
+		warnings := warningsFromPlan(result.Plan)
+		if result.TailscaleSkipped != "" {
+			warnings = append(warnings, "tailscale skipped: "+result.TailscaleSkipped)
+		}
+		if writeErr := writeJSON(o.Out, "up", result.Project, payload, warnings, jsonErrs(err)); writeErr != nil {
 			return writeErr
 		}
 		return err
@@ -112,13 +121,16 @@ func (o Options) Up(result app.UpResult, err error) error {
 		}
 		return o.Error(err)
 	}
-	if !hasMutations(result.Plan) {
+	switch {
+	case result.TailscaleSkipped != "":
+	case !hasMutations(result.Plan):
 		fmt.Fprintln(o.Out, "already up")
-	} else {
+	default:
 		writeOperations(o.Out, result.Plan.Operations)
 	}
 	writeServiceTable(o.Out, result.Services)
 	writeLocalSetup(o.Out, result.Services, result.Local)
+	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
 	return nil
 }
 
@@ -132,6 +144,13 @@ func (o Options) Down(result app.DownResult, err error) error {
 	}
 	if err != nil {
 		return o.Error(err)
+	}
+	if result.TailscaleSkipped != "" {
+		fmt.Fprintln(o.Out, "local names withdrawn")
+		if result.KeptRoutes > 0 {
+			writeTailscaleSkipped(o.Out, fmt.Sprintf("%s; %d Tailscale route(s) stay until pier down runs with Tailscale up", result.TailscaleSkipped, result.KeptRoutes))
+		}
+		return nil
 	}
 	if !hasMutations(result.Plan) {
 		fmt.Fprintln(o.Out, "no owned routes")
@@ -281,11 +300,19 @@ func writeServiceTable(w io.Writer, services []app.ServiceInfo) {
 			strconv.FormatBool(service.Public),
 			strconv.FormatBool(service.Paused),
 			healthStatus,
-			service.URL,
+			orDash(service.URL),
 		)
 	}
 	_ = tab.Flush()
 	writeLocalNames(w, services)
+}
+
+// writeTailscaleSkipped explains that Tailscale was left alone and why.
+func writeTailscaleSkipped(w io.Writer, reason string) {
+	if reason == "" {
+		return
+	}
+	fmt.Fprintf(w, "tailscale    skipped: %s\n", strings.TrimPrefix(reason, "Pier cannot use Tailscale: "))
 }
 
 func writeOperations(w io.Writer, ops []reconcile.Operation) {
@@ -332,4 +359,11 @@ func warningsFromPlan(plan reconcile.Plan) []string {
 		return []string{}
 	}
 	return []string{"unmanaged Tailscale routes were taken over"}
+}
+
+func orDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
