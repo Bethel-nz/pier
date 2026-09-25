@@ -2,20 +2,17 @@
 
 # Pier
 
-Describe the local services in a project, run `pier up`, and get stable Tailscale URLs for all of them.
+A privacy-first proxy you own.
 
-Pier is a local Go CLI and TUI over the Tailscale CLI. It reads `pier.yaml`, reconciles those services onto Tailscale Serve (tailnet) and Funnel (public), and prints the URLs. It does not start your apps, implement a tunnel, or reset unrelated Tailscale configuration.
+Describe the local services in a project, run `pier up`, and get stable URLs — on your LAN, your devices, or the public internet. Pier runs on your machine, reads `pier.yaml`, and puts those services on the exposure path you chose. No SaaS tunnel owns the route. No third party sits in the middle of your traffic.
 
-URL availability depends on the developer machine, the local service, and Tailscale remaining online.
+You own the infra: the binary, the config, the certificates, the URLs. Pier just reconciles what you declared and tells you the truth about what is live.
 
 ## Prerequisites
 
 - Go 1.25+ to build from source
-- For tailnet and public URLs: Tailscale installed, running, and signed in. `local:` names need nothing else; when Tailscale is unavailable, `pier up` still serves them and reports Tailscale as skipped
-- [MagicDNS](https://tailscale.com/docs/features/magicdns) and [HTTPS certificates](https://tailscale.com/docs/features/https) enabled for Serve
-- [Funnel](https://tailscale.com/docs/features/tailscale-funnel) authorization on the device if any service uses `public: true`
-
-See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) for current platform requirements.
+- Nothing else for `local:` names and LAN URLs — Pier serves those on your machine
+- For other exposure paths, install whatever that path needs. Pier skips a path that is not available and still brings up the rest
 
 ## Install
 
@@ -75,6 +72,7 @@ services:
   web:
     target: localhost:3000
     path: /
+    local: myapp.local
 
   api:
     target: localhost:4000
@@ -86,9 +84,9 @@ services:
     public: true
 ```
 
-`public: false` maps to Serve on HTTPS listener `8443`. `public: true` maps to Funnel on HTTPS listener `443`. Serve and Funnel never share a listener.
+By default services stay private. Set `public: true` (or a duration like `2h`) when a path should be reachable on the public internet — useful for webhooks and short demos. See [Public exposure](#public-exposure).
 
-Databases and other non-HTTP servers use `protocol: tcp`. Pier forwards the raw connection over the tailnet and the LAN, so `psql -h db.myapp.local` just works. See [TCP services](docs/configuration.md#tcp-services).
+Databases and other non-HTTP servers use `protocol: tcp`. Pier forwards the raw connection on the paths you enabled, so `psql -h db.myapp.local` just works. See [TCP services](docs/configuration.md#tcp-services).
 
 ## Local names
 
@@ -111,9 +109,9 @@ Nothing else to install. On `pier up`, Pier:
 - asks the OS once to trust that CA (the macOS password dialog, a Windows confirmation, or `sudo` on Linux),
 - starts a small background daemon that answers mDNS for the names and proxies HTTPS on port 443 to your service, which stays bound to loopback.
 
-The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. The Tailscale URL is unchanged.
+The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. Other exposure paths for that service are unchanged.
 
-`.local` names need the network to pass multicast and each device to trust Pier's CA, and some networks and devices won't cooperate. So every local service also gets a plain-HTTP address on this machine's LAN IP, which `pier up` prints on a `lan` line, such as `http://192.168.1.162:4100/`. It needs nothing on the other device and works on any network that lets devices reach each other. The port stays the same across runs; the IP is whatever this machine has on its current network. `pier qr --lan` shows it as a QR code. It is plain HTTP, so browser features limited to secure pages (service workers, camera, clipboard) need the `.local` name or Tailscale instead.
+`.local` names need the network to pass multicast and each device to trust Pier's CA, and some networks and devices won't cooperate. So every local service also gets a plain-HTTP address on this machine's LAN IP, which `pier up` prints on a `lan` line, such as `http://192.168.1.162:4100/`. It needs nothing on the other device and works on any network that lets devices reach each other. The port stays the same across runs; the IP is whatever this machine has on its current network. `pier qr --lan` shows it as a QR code. It is plain HTTP, so browser features limited to secure pages (service workers, camera, clipboard) need the `.local` name or another HTTPS path instead.
 
 To trust HTTPS on another device, open `http://<local-name>/.pier/` on it once (or scan `pier qr --ca`). The page detects the device and gives it a one-tap installer: a profile on iPhone and iPad, a certificate on Android, Windows, and other computers. Trust lasts for every `.local` name Pier serves, so each device does this only once. Compare the fingerprint the page shows with `pier doctor`.
 
@@ -136,7 +134,7 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 - **`ping <mac-name>.local` works but the Pier name doesn't.** Windows resolved the Mac's name over NetBIOS, not mDNS, so it proves nothing. Test with `ping myapp.local`.
 - **Chrome on iPhone can't resolve `.local`, Safari can.** Use Safari, or turn off Secure DNS in Chrome's settings.
 - **Certificate warning on phones and other machines.** `pier trust` covers only this machine. Open `http://myapp.local/.pier/` on the device (or scan `pier qr --ca`) and follow its steps.
-- **The URL has `:8443`.** Tailscale Serve or Funnel holds port 443, so Pier shares it by binding its LAN addresses, or falls back to 8443. Old Serve and Funnel routes, possibly public ones, stay until you run `pier down` with Tailscale running.
+- **The URL has `:8443`.** Something else already holds port 443 on this machine, so Pier falls back to 8443 (or shares 443 on LAN addresses when it can). Run `pier doctor` if that is unexpected.
 - **`pier: command not found` after `go install`.** Add `$(go env GOPATH)/bin` to your `PATH`.
 - **Changes don't take effect in the daemon.** It keeps the environment it started with. After changing permissions or reinstalling, run `pier down && pier up` from the terminal you normally use.
 
@@ -144,7 +142,7 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 
 - [`examples/configs/basic.yaml`](examples/configs/basic.yaml) — one private HTTP service.
 - [`examples/configs/multiple-services.yaml`](examples/configs/multiple-services.yaml) — several private services on separate paths, including an HTTPS upstream.
-- [`examples/configs/public-webhook.yaml`](examples/configs/public-webhook.yaml) — a private app with one public Funnel webhook.
+- [`examples/configs/public-webhook.yaml`](examples/configs/public-webhook.yaml) — a private app with one public webhook path.
 - [`examples/configs/local-domains.yaml`](examples/configs/local-domains.yaml) — `.local` HTTPS names for devices on the same network.
 - [`examples/bun-server/`](examples/bun-server/) — a runnable Bun server demo with its own `pier.yaml`.
 
@@ -156,17 +154,17 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 | `pier init [name]` | Create a minimal `pier.yaml` and `.pier/id` |
 | `pier validate` | Schema and semantic checks without requiring services to run |
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
-| `pier up` | Start `run:` commands, then validate, check Tailscale, plan, apply, verify, persist ownership, print URLs |
+| `pier up` | Start `run:` commands, then validate, plan, apply, verify, persist ownership, print URLs |
 | `pier down` | Remove only routes owned by this Pier project |
-| `pier status [--all]` | Show what Tailscale actually serves for each service, how long anything has been PUBLIC, and what differs from `pier.yaml`; `--all` lists every route on this machine |
-| `pier doctor` | Diagnose config, Tailscale, and local targets |
+| `pier status [--all]` | Show what is actually live for each service, how long anything has been PUBLIC, and what differs from `pier.yaml`; `--all` lists every route Pier can see on this machine |
+| `pier doctor` | Diagnose config, exposure paths, and local targets |
 | `pier share <service>` | Runtime-only `public: true` override |
 | `pier unshare <service>` | Remove the override and restore configured access |
-| `pier pause <service>` | Remove that service's Tailscale route; the local process stays running |
-| `pier resume <service>` | Restore a paused service route |
+| `pier pause <service>` | Withdraw that service's routes; the local process stays running |
+| `pier resume <service>` | Restore a paused service |
 | `pier service add [name]` | Add a service to `pier.yaml` (Huh form in a TTY, or `--target`) |
-| `pier open <service> [--local]` | Open the current Tailscale URL, or the `.local` URL |
-| `pier copy <service> [--local]` | Copy the current Tailscale URL, or the `.local` URL |
+| `pier open <service> [--local]` | Open the current URL, or the `.local` URL |
+| `pier copy <service> [--local]` | Copy the current URL, or the `.local` URL |
 | `pier trust [--remove]` | Trust Pier's local CA again, or remove it (`pier up` trusts it for you) |
 | `pier replay [id...]` | List requests kept by `capture:`, or send them to the service again (`--since 10m`, `--show`) |
 | `pier` / `pier tui` | Interactive management interface |
@@ -174,9 +172,9 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 Global flags: `--config`, `--json`, `--verbose`, `--no-color`.
 
 - `pier up --strict` refuses to apply if a local target is unavailable. Without `--strict`, unavailable targets are reported and still configured.
-- `pier up --force` and `pier plan --force` take over unmanaged Tailscale routes on the same listener and path.
+- `pier up --force` and `pier plan --force` take over unmanaged routes on the same identity when Pier would otherwise refuse.
 - `--json` is supported for `validate`, `plan`, `status`, and `doctor` (and the other commands). The envelope is `{version, command, project, data, warnings, errors}` with schema version `1`.
-- `--verbose` includes raw Tailscale stderr. Human-readable errors always lead with a Pier explanation.
+- `--verbose` includes raw backend diagnostics. Human-readable errors always lead with a Pier explanation.
 
 ## TUI keys
 
@@ -190,13 +188,13 @@ Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit wh
 
 ## Public exposure
 
-`public: true` and `pier share` publish a path on the internet through Funnel. Anyone who can reach the Funnel URL can reach that local service. Tailscale still owns TLS, DNS, and Funnel policy; Pier only asks Tailscale to configure the path.
+`public: true` and `pier share` publish a path on the internet. Anyone who can reach that URL can reach that local service. Pier configures the path; you still own the machine that answers.
 
 `public: 2h` publishes a service for two hours from each `pier up`, then makes it private again on its own. Use it for demos and webhook testing so a public link never outlives the reason for it. See [`docs/configuration.md`](docs/configuration.md#public-for-a-while).
 
 ## Safety
 
-Pier never runs `tailscale serve reset` or `tailscale funnel reset`. `pier down` removes only routes this project recorded as owned. Unrelated Tailscale routes are left untouched unless you pass `--force` to take over a conflicting path. Details: [`docs/troubleshooting.md`](docs/troubleshooting.md).
+Pier only removes routes this project recorded as owned. Unrelated routes on the machine stay untouched unless you pass `--force` to take over a conflicting path. Details: [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Remove Pier routes
 
@@ -208,7 +206,7 @@ Then delete `pier.yaml` and `.pier/` if you no longer want the project. Runtime 
 
 ## Verify
 
-CI runs `gofmt`, `go vet ./...`, and `go test ./...`. Tailscale is not required in CI.
+CI runs `gofmt`, `go vet ./...`, and `go test ./...`. Live exposure backends are not required in CI.
 
 Local checks:
 
@@ -219,15 +217,13 @@ go test ./...
 ./scripts/smoke.sh
 ```
 
-`./scripts/smoke.sh` starts two loopback HTTP servers, writes a temporary `pier.yaml`, and runs `pier validate` and `pier plan`. It does not change Tailscale routes unless you set `PIER_SMOKE_APPLY=1`.
+`./scripts/smoke.sh` starts two loopback HTTP servers, writes a temporary `pier.yaml`, and runs `pier validate` and `pier plan`. It does not change live routes unless you set `PIER_SMOKE_APPLY=1`.
 
 ```bash
 PIER_SMOKE_APPLY=1 ./scripts/smoke.sh
 ```
 
-That apply path needs a disposable Tailscale node authorized for Serve (and Funnel if you add public routes). `pier down` runs in a trap and the script checks that unrelated Tailscale routes are unchanged.
-
-Do not tag `v0.1.0` until that live run and a TUI pass have been done on a real node.
+That apply path needs a disposable machine authorized for the exposure paths you exercise. `pier down` runs in a trap and the script checks that unrelated routes are unchanged.
 
 ## License
 
