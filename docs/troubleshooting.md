@@ -6,22 +6,22 @@ After a successful `pier up`, Pier records the routes it created or updated in `
 
 ## Conflicts
 
-If Tailscale already has a different handler on the same HTTPS listener and path, and Pier does not own it, `pier plan` / `pier up` refuse with a conflict. The error shows current and desired values and suggests `pier up --force`.
+If something already answers on the same route identity Pier would claim, and Pier does not own it, `pier plan` / `pier up` refuse with a conflict. The error shows current and desired values and suggests `pier up --force`.
 
-`--force` takes over that identity. It still does not run a Tailscale reset.
+`--force` takes over that identity. It still does not wipe unrelated routes on the machine.
 
-## Why Pier never resets Tailscale
+## Why Pier never resets a whole backend
 
-`tailscale serve reset` and `tailscale funnel reset` would wipe every Serve/Funnel handler on the machine, including routes Pier does not own. Pier only emits path-specific `off` and path-specific Serve/Funnel publishes.
+A full backend reset would wipe every handler on the machine, including routes Pier does not own. Pier only turns off and republishes the specific identities this project recorded.
 
 ## What `pier down` removes
 
-- HTTPS proxy handlers whose listener+path were saved as owned by this project
+- Routes whose identities were saved as owned by this project (local names this project declared, and any device/public handlers it applied)
 
 ## What `pier down` leaves untouched
 
-- Unrelated Serve/Funnel routes
-- Tailscale authentication, MagicDNS, HTTPS certificates, and ACLs
+- Unrelated routes from other tools or projects
+- Backend authentication, DNS policy, and certificates that Pier did not create
 - Local application processes
 - `pier.yaml`
 
@@ -29,22 +29,21 @@ If Tailscale already has a different handler on the same HTTPS listener and path
 
 Anything public is reachable by anyone on the internet, so Pier keeps it in view:
 
-- `pier status` reads the routes Tailscale serves right now, not saved state. A service shows a URL only when its route is live, and its PUBLIC column says how long it has been public (`PUBLIC 3h`). Lines starting `drift` say where Tailscale differs from `pier.yaml`, such as an older public route an earlier run left behind, each with the command that fixes it.
-- `pier status --all` lists every Serve and Funnel route on this machine, public ones first, with the Pier project that owns each one, or `-` for none.
+- `pier status` reads what is live right now, not only saved state. A service shows a URL only when its route is live, and its PUBLIC column says how long it has been public (`PUBLIC 3h`). Lines starting `drift` say where live state differs from `pier.yaml`, each with the command that fixes it.
+- `pier status --all` lists every route Pier can see on this machine, public ones first, with the Pier project that owns each one, or `-` for none.
 - `pier up`, `pier status`, and `pier doctor` warn about public routes no Pier project owns, and about public routes that have been up for more than 24 hours.
 
 ## Doctor
 
-`pier doctor` reports whether Tailscale is installed, the daemon is running, the client is signed in, MagicDNS/HTTPS/Funnel look available, and local targets answer on TCP. Failures are diagnostic data. `--verbose` adds raw Tailscale stderr. It also warns about public routes (above), and when the `pier` on your PATH is a different binary from the one running, the usual reason a `go install`ed fix seems to change nothing.
+`pier doctor` reports config health, whether optional exposure backends are available, local CA / daemon state, and whether local targets answer on TCP. Failures are diagnostic data. `--verbose` adds raw backend diagnostics. It also warns about public routes (above), and when the `pier` on your PATH is a different binary from the one running — the usual reason a `go install`ed fix seems to change nothing.
 
-Common blocks:
+Common blocks for optional device/public paths:
 
-- missing `tailscale` binary
-- stopped daemon
-- signed-out client
-- Funnel used without Funnel authorization
+- backend binary missing or daemon stopped
+- signed-out or unauthorized client
+- public exposure used without that path's authorization
 
-See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) for current requirements. Funnel's allowed public listener ports are documented there; Pier uses `443` for public routes and `8443` for tailnet-only routes.
+When a backend documents its own listener ports or bandwidth limits, Pier follows those rules for that path. Local `.local` / LAN serving does not need those backends.
 
 ## Health and `--strict`
 
@@ -52,7 +51,9 @@ Pier dials each service host/port with a 500ms timeout. A failed check is shown 
 
 ## DNS and reachability
 
-Serve and Funnel URLs are Tailscale MagicDNS names. Propagation, certificate issuance, and Funnel bandwidth limits are Tailscale's. If `pier status` shows a URL but the browser fails, check that this machine, the local process, and Tailscale are still online.
+If `pier status` shows a URL but the browser fails, check that this machine and the local process are still online, and that the exposure path for that URL is still available. Propagation, certificate issuance, and bandwidth limits on a device/public backend are that backend's responsibility.
+
+For `.local` and `lan` URLs, see below and the gotchas in the [README](../README.md#gotchas).
 
 ## `.local` names on other devices
 
@@ -62,3 +63,4 @@ Pier publishes each `.local` name through the system's mDNS responder (mDNSRespo
 2. On macOS, `dns-sd -G v4 myapp.local` should print this machine's LAN IP. If it does, Pier is publishing correctly.
 3. Make sure IPv6 is on for the other device's network adapter. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6, so with IPv6 off the device never hears the answer. On Windows, run in an administrator shell: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
 4. If the router drops both, look for "AP isolation", "client isolation", or "multicast" settings on the router.
+5. Meanwhile use the plain-HTTP `lan` address `pier up` prints, or scan `pier qr --lan`.

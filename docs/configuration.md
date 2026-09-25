@@ -1,6 +1,6 @@
 # Configuration
 
-Pier's committed project file is `pier.yaml`. Runtime state is never committed.
+Pier's committed project file is `pier.yaml`. You own that file and the routes it describes. Runtime state is never committed.
 
 ## Schema
 
@@ -33,10 +33,10 @@ services:
 | --- | --- |
 | `version` | Must be `1` |
 | `name` | Project name |
-| `defaults.public` | Inherited Funnel (`true`) vs Serve (`false`) |
-| `defaults.protocol` | Inherited `http` or `https` |
+| `defaults.public` | Inherited public (`true`) vs private (`false`) |
+| `defaults.protocol` | Inherited `http`, `https`, or `tcp` |
 | `services.<name>.target` | Host and port of the local process |
-| `services.<name>.path` | URL path on the Tailscale listener |
+| `services.<name>.path` | URL path on the HTTPS exposure path (HTTP/HTTPS services) |
 | `services.<name>.public` | Optional per-service override of `defaults.public`: `true`, `false`, or how long to stay public after `pier up`, such as `2h` |
 | `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)) |
 | `services.<name>.listen` | TCP only: the port clients connect to, by default the target's port |
@@ -48,14 +48,14 @@ services:
 | `services.<name>.throttle` | Slow the service to `slow-3g`, `3g`, `4g`, or `{latency, down, up}` |
 | `services.<name>.capture` | Keep the service's requests this long for `pier replay`, such as `2min`, `1hr`, `24h`, or `7d` |
 
-v0.1 supports HTTP and HTTPS proxy targets only. Raw TCP is not configured.
+HTTP, HTTPS, and TCP targets are supported. See [TCP services](#tcp-services).
 
 ## Examples
 
 - [`basic.yaml`](../examples/configs/basic.yaml) shows the smallest private service configuration.
 - [`multiple-services.yaml`](../examples/configs/multiple-services.yaml) shows path routing for multiple services and a per-service HTTPS upstream.
-- [`public-webhook.yaml`](../examples/configs/public-webhook.yaml) keeps the main app private while exposing only a webhook through Funnel.
-- [`local-domains.yaml`](../examples/configs/local-domains.yaml) serves `.local` HTTPS names on the LAN alongside private Tailscale URLs.
+- [`public-webhook.yaml`](../examples/configs/public-webhook.yaml) keeps the main app private while exposing only a webhook on the public internet.
+- [`local-domains.yaml`](../examples/configs/local-domains.yaml) serves `.local` HTTPS names on the LAN alongside other private URLs.
 - [`bun-server`](../examples/bun-server/) is a runnable local demo and remains private by default.
 
 ## Running services
@@ -112,7 +112,7 @@ Latency is added once per request. Bandwidth paces request and response bodies. 
 
 Lengths of time in `pier.yaml` (`capture`, `public`) take Go's forms (`90s`, `2m`, `1h30m`) or a number and a unit: `2min`, `1hr`, `24 hours`, `7d`, `3 days`, `2w`.
 
-Both need Pier to see the traffic. Tailscale sends requests straight to the service, so a throttled or captured service gets a tap: a loopback port in Pier's background process that Tailscale Serve and Funnel point at instead. The tap applies the throttle and capture, then forwards to `target` with Tailscale's `X-Forwarded-*` headers intact. The service's `.local` name goes through the same throttle and capture. Tap ports are saved and reused, so repeated `pier up` runs don't move Tailscale routes.
+Both need Pier to see the traffic. When an exposure backend would send requests straight to the service, a throttled or captured service gets a tap: a loopback port in Pier's background process that the backend points at instead. The tap applies the throttle and capture, then forwards to `target` with `X-Forwarded-*` headers intact. The service's `.local` name goes through the same throttle and capture. Tap ports are saved and reused, so repeated `pier up` runs don't churn route identities.
 
 ### Replay
 
@@ -125,14 +125,14 @@ pier replay --service hooks   # only one service (with a list or --since)
 pier replay 42 --show         # print the request and its answer instead of sending
 ```
 
-A replay goes straight to the service's current `target`, not through Tailscale or its tap, so it is neither throttled nor captured again. It carries `X-Pier-Replay: <id>` and the original `X-Forwarded-Host`. Redacted headers are left out, so a request that needed `Authorization` has to be allowed some other way while you test. Webhook signatures such as `Stripe-Signature` are kept, though a provider that signs timestamps may reject a replay once its tolerance window passes.
+A replay goes straight to the service's current `target`, not through an exposure path or its tap, so it is neither throttled nor captured again. It carries `X-Pier-Replay: <id>` and the original `X-Forwarded-Host`. Redacted headers are left out, so a request that needed `Authorization` has to be allowed some other way while you test. Webhook signatures such as `Stripe-Signature` are kept, though a provider that signs timestamps may reject a replay once its tolerance window passes.
 
-## Listeners
+## Private and public
 
-- `public: false` → Tailscale Serve on HTTPS port `8443`
-- `public: true` → Tailscale Funnel on HTTPS port `443`
+- `public: false` → private HTTPS on the device path (listener `8443` when that backend is in use)
+- `public: true` → public HTTPS on the internet path (listener `443` when that backend is in use)
 
-Serve and Funnel never share a listener. Changing `public` (or using `pier share` / `pier unshare`) plans a delete on the old listener and a create on the new one.
+Private and public never share a listener. Changing `public` (or using `pier share` / `pier unshare`) plans a delete on the old listener and a create on the new one.
 
 ### Public for a while
 
@@ -143,9 +143,9 @@ services:
     public: 2h
 ```
 
-`public: 2h` makes the service public through Funnel for two hours from each `pier up`, then private again on the tailnet listener. `pier status` shows the time left, such as `true (1h12m left)`. Running `pier up` again starts a fresh two hours. The window is between 1 minute and 7 days, written like any length of time in `pier.yaml` (below).
+`public: 2h` makes the service public for two hours from each `pier up`, then private again. `pier status` shows the time left, such as `true (1h12m left)`. Running `pier up` again starts a fresh two hours. The window is between 1 minute and 7 days, written like any length of time in `pier.yaml` (below).
 
-Pier's background process closes the window when it ends, even with no terminal open. If Tailscale is unreachable at that moment, it retries every 30 seconds and says so in `pier doctor`. If this machine is asleep, the window closes as soon as it wakes. If the machine restarts before the window ends, Funnel stays on until Pier runs again: turn on `local.autostart`, or run any `pier up`.
+Pier's background process closes the window when it ends, even with no terminal open. If the public path is unreachable at that moment, it retries every 30 seconds and says so in `pier doctor`. If this machine is asleep, the window closes as soon as it wakes. If the machine restarts before the window ends, the public route stays until Pier runs again: turn on `local.autostart`, or run any `pier up`.
 
 `pier share` and `pier unshare` still override a timed service, with no time limit.
 
@@ -166,7 +166,7 @@ local  db  tcp://db.myapp.local:5432
 lan    db  tcp://192.168.1.20:5432  (any device on this network, no setup)
 ```
 
-Pier forwards the raw connection, byte for byte: on the tailnet through `tailscale serve --tcp` (`pier status` shows `tcp://machine.tailnet.ts.net:5432`), and on the LAN through a relay on this machine's network addresses. Point any client at it, such as `psql -h db.myapp.local`.
+Pier forwards the raw connection, byte for byte: on the LAN through a relay on this machine's network addresses, and on any private device path you have enabled (`pier status` prints the live TCP URLs). Point any client at it, such as `psql -h db.myapp.local`.
 
 - `listen` sets the port clients use, such as `listen: 15432`. It defaults to the target's port, must be unique in the project, and cannot be `443` or `8443`, which Pier keeps for HTTPS.
 - TCP services are private: `public`, `path`, `throttle`, and `capture` are HTTP features and are rejected.
@@ -175,7 +175,7 @@ Pier forwards the raw connection, byte for byte: on the tailnet through `tailsca
 
 ## Local names
 
-`local` must be a lowercase hostname ending in `.local`, such as `myapp.local` or `api.myapp.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to the Tailscale URL.
+`local` must be a lowercase hostname ending in `.local`, such as `myapp.local` or `api.myapp.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to path-based HTTPS exposure URLs, not to the `.local` name.
 
 `pier up` issues `.pier/certs/cert.pem` and `key.pem` for the project's local names, signed by a per-user CA in the user config directory (`pier/ca/`). The CA is name-constrained to `.local`. Apps may reuse the project certificate directly, for example as Vite's `server.https`.
 
@@ -223,9 +223,9 @@ While the daemon runs, it serves a JSON API on `127.0.0.1` at a random port; `pi
 
 ## Runtime overrides
 
-`pier share <service>` stores `public: true` in per-project state under the user config directory. `pier.yaml` is not modified. `pier unshare` removes the override. The override is persisted only after Tailscale verifies the route change.
+`pier share <service>` stores `public: true` in per-project state under the user config directory. `pier.yaml` is not modified. `pier unshare` removes the override. The override is persisted only after the route change verifies.
 
-`pier pause <service>` stores a runtime pause flag in the same per-project state and deletes that service's Tailscale route. The local process is not started, stopped, or signaled. `pier resume` clears the flag and restores the route. `pier up` skips paused services. `pier service add` writes a new service into `pier.yaml` and does not change Tailscale until `pier up` or `pier resume`.
+`pier pause <service>` stores a runtime pause flag in the same per-project state and withdraws that service's routes. The local process is not started, stopped, or signaled. `pier resume` clears the flag and restores the routes. `pier up` skips paused services. `pier service add` writes a new service into `pier.yaml` and does not change live routes until `pier up` or `pier resume`.
 
 ## Machine-readable output
 
