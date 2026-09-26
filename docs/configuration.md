@@ -38,7 +38,7 @@ services:
 | `services.<name>.target` | Host and port of the local process |
 | `services.<name>.path` | URL path on the HTTPS exposure path (HTTP/HTTPS services) |
 | `services.<name>.public` | Optional per-service override of `defaults.public`: `true`, `false`, or how long to stay public after `pier up`, such as `2h` |
-| `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)) |
+| `services.<name>.protocol` | Optional per-service `http`, `https`, or `tcp` (see [TCP services](#tcp-services)). This is what your service speaks at `target`, not what clients use: a service on plain `http` still gets `https://` and `wss://` URLs, because Pier adds TLS in front |
 | `services.<name>.listen` | TCP only: the port clients connect to, by default the target's port |
 | `services.<name>.local` | Optional `.local` name served over HTTPS on the local network |
 | `services.<name>.run` | Optional shell command `pier up` starts and keeps running |
