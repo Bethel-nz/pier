@@ -107,13 +107,28 @@ Nothing else to install. On `pier up`, Pier:
 
 - issues a certificate into `.pier/certs/` from a local CA that can only sign `.local` names (and adds `.pier/` to `.gitignore`),
 - asks the OS once to trust that CA (the macOS password dialog, a Windows confirmation, or `sudo` on Linux),
-- starts a small background daemon that answers mDNS for the names and proxies HTTPS on port 443 to your service, which stays bound to loopback.
+- publishes the names through the system's mDNS responder (Pier's own on Linux) and starts a small background daemon that proxies HTTPS on port 443 to your service, which stays bound to loopback.
 
 The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. Other exposure paths for that service are unchanged.
 
 `.local` names need the network to pass multicast and each device to trust Pier's CA, and some networks and devices won't cooperate. So every local service also gets a plain-HTTP address on this machine's LAN IP, which `pier up` prints on a `lan` line, such as `http://192.168.1.162:4100/`. It needs nothing on the other device and works on any network that lets devices reach each other. The port stays the same across runs; the IP is whatever this machine has on its current network. `pier qr --lan` shows it as a QR code. It is plain HTTP, so browser features limited to secure pages (service workers, camera, clipboard) need the `.local` name or another HTTPS path instead.
 
-To trust HTTPS on another device, open `http://<local-name>/.pier/` on it once (or scan `pier qr --ca`). The page detects the device and gives it a one-tap installer: a profile on iPhone and iPad, a certificate on Android, Windows, and other computers. Trust lasts for every `.local` name Pier serves, so each device does this only once. Compare the fingerprint the page shows with `pier doctor`.
+### Trust HTTPS on other devices
+
+`pier trust` covers only this machine. Every other device trusts Pier's CA once, and that covers every `.local` name Pier serves, including ones you add later. Redo it only after resetting the device or running `pier clean`, which replaces the CA.
+
+On the device, open `http://<local-name>/.pier/` (or scan `pier qr --ca`). The page detects the device and offers a one-tap installer. Compare the fingerprint it shows with `pier doctor`. Then finish per device:
+
+- **iPhone and iPad.** Open the page in Safari and allow the profile download. Install it in Settings → General → VPN & Device Management. Then turn on **Pier Local CA** in Settings → General → About → Certificate Trust Settings. iOS does not trust an installed root for HTTPS until you do this last step.
+- **Android.** Install the downloaded file in Settings → Security → Encryption & credentials → Install a certificate → CA certificate. Browsers trust it; apps don't (see Gotchas).
+- **Windows.** Open the downloaded file, choose Install Certificate → Local Machine → Trusted Root Certification Authorities.
+- **Another Mac.** Open the downloaded file, then in Keychain Access set **Pier Local CA** to Always Trust.
+- **iOS Simulator.** It has its own trust store, separate from the Mac's. Run `xcrun simctl keychain booted add-root-cert "$HOME/Library/Application Support/pier/ca/ca.pem"` once per simulator, and again after erasing it.
+- **Android emulator.** Same as Android: drag `ca.pem` onto the emulator window, then install it as a CA certificate.
+
+If the page won't load on the device, copy the CA over yourself: it is `~/Library/Application Support/pier/ca/ca.pem` on macOS (`pier doctor` prints the path on every OS). AirDrop, email, or USB all work; then follow the same steps.
+
+Apps built on the system network stack, such as React Native and Expo apps on iOS, use the same trust, so point them at `https://<local-name>` and `wss://<local-name>` once the device trusts the CA. The full walkthrough, including WebSockets and switching networks, is in [`docs/mobile-apps.md`](docs/mobile-apps.md).
 
 On Linux, binding port 443 needs `sudo setcap cap_net_bind_service=+ep "$(command -v pier)"`. Without it, Pier uses port 8443 and says so. Chrome and Firefox on Linux read their own certificate stores; Pier adds its CA there when NSS's `certutil` is installed.
 
@@ -133,7 +148,8 @@ Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting
 - **Windows network set to Public.** The firewall drops incoming mDNS replies. Run `Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private`.
 - **`ping <mac-name>.local` works but the Pier name doesn't.** Windows resolved the Mac's name over NetBIOS, not mDNS, so it proves nothing. Test with `ping myapp.local`.
 - **Chrome on iPhone can't resolve `.local`, Safari can.** Use Safari, or turn off Secure DNS in Chrome's settings.
-- **Certificate warning on phones and other machines.** `pier trust` covers only this machine. Open `http://myapp.local/.pier/` on the device (or scan `pier qr --ca`) and follow its steps.
+- **Certificate warning on phones and other machines, or an app error like "The certificate for this server is invalid".** The device doesn't trust Pier's CA yet. Follow [Trust HTTPS on other devices](#trust-https-on-other-devices). On iPhone, the step people miss is Certificate Trust Settings.
+- **Android apps reject the certificate even after installing it.** Android apps ignore user-installed CAs by default. For a debug build, add a network security config that trusts user certificates, or use the `lan` address.
 - **The URL has `:8443`.** Something else already holds port 443 on this machine, so Pier falls back to 8443 (or shares 443 on LAN addresses when it can). Run `pier doctor` if that is unexpected.
 - **`pier: command not found` after `go install`.** Add `$(go env GOPATH)/bin` to your `PATH`.
 - **Changes don't take effect in the daemon.** It keeps the environment it started with. After changing permissions or reinstalling, run `pier down && pier up` from the terminal you normally use.
