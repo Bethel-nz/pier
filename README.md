@@ -28,7 +28,15 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.ps1 | iex
 ```
 
-The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory. Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
+The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory (`~/.local/bin` on macOS and Linux). Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
+
+If that directory isn't on your `PATH`, the macOS/Linux installer asks before adding it to your shell's startup file (`.zshrc`, `.bash_profile` or `.bashrc`, or fish's `config.fish`). Pass `--yes` to add it without asking, or `--no-path` (or `PIER_NO_MODIFY_PATH=1`) to leave your startup files alone. It then prints the line to add yourself:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.sh | bash -s -- --yes
+```
+
+The Windows installer adds its directory to your user `PATH`.
 
 From anywhere, with Go:
 
