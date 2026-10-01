@@ -40,7 +40,7 @@ func TestShareStoresOverrideWithoutChangingConfig(t *testing.T) {
 func TestShareLeavesPierYAMLBytesUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pier.yaml")
-	original := []byte("version: 1\nname: greppa\nservices:\n  web:\n    target: localhost:3000\n")
+	original := []byte("version: 1\nname: myapp\nservices:\n  web:\n    target: localhost:3000\n")
 	if err := os.WriteFile(path, original, 0o644); err != nil {
 		t.Fatal(err)
 	}

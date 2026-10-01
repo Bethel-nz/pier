@@ -6,7 +6,7 @@ Pier's committed project file is `pier.yaml`. You own that file and the routes i
 
 ```yaml
 version: 1
-name: greppa
+name: myapp
 
 defaults:
   public: false

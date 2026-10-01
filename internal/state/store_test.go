@@ -31,8 +31,8 @@ func TestSaveLoadRoundTripPreservesOwnershipAndOverrides(t *testing.T) {
 	original := ProjectState{
 		Version:    CurrentVersion,
 		ProjectID:  "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff",
-		Name:       "greppa",
-		Path:       "/Users/dev/greppa",
+		Name:       "myapp",
+		Path:       "/Users/dev/myapp",
 		DNSName:    "dev.tailnet.ts.net",
 		ConfigHash: "sha256:abc123",
 		Routes: []Route{
@@ -117,8 +117,8 @@ func TestSavedStatePermissionsDenyGroupAndWorldWrites(t *testing.T) {
 	if err := store.Save(ProjectState{
 		Version:   CurrentVersion,
 		ProjectID: projectID,
-		Name:      "greppa",
-		Path:      "/tmp/greppa",
+		Name:      "myapp",
+		Path:      "/tmp/myapp",
 		UpdatedAt: time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -202,8 +202,8 @@ func TestDeleteRemovesState(t *testing.T) {
 	if err := store.Save(ProjectState{
 		Version:   CurrentVersion,
 		ProjectID: projectID,
-		Name:      "greppa",
-		Path:      "/tmp/greppa",
+		Name:      "myapp",
+		Path:      "/tmp/myapp",
 		UpdatedAt: time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("Save() error = %v", err)

@@ -14,7 +14,7 @@ import (
 func TestStatusTableColumns(t *testing.T) {
 	var out bytes.Buffer
 	err := Options{Out: &out, Err: &out}.Status(app.StatusResult{
-		Project: project.Context{ID: "proj", Root: "/tmp/greppa"},
+		Project: project.Context{ID: "proj", Root: "/tmp/myapp"},
 		Services: []app.ServiceInfo{
 			{Name: "web", Host: "localhost", Port: 3000, Path: "/", Public: false, Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net:8443/", HTTPSPort: 8443},
 			{Name: "api", Host: "localhost", Port: 4000, Path: "/api", Public: false, Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net:8443/api", HTTPSPort: 8443},
@@ -44,7 +44,7 @@ func TestStatusTableColumns(t *testing.T) {
 func TestJSONEnvelopeHasNoColorAndStableFields(t *testing.T) {
 	var out bytes.Buffer
 	err := Options{JSON: true, Command: "status", Out: &out, Err: &out}.Status(app.StatusResult{
-		Project: project.Context{ID: "proj", Root: "/tmp/greppa"},
+		Project: project.Context{ID: "proj", Root: "/tmp/myapp"},
 		DNSName: "host.ts.net",
 		Services: []app.ServiceInfo{
 			{Name: "web", Host: "localhost", Port: 3000, Path: "/", Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net:8443/"},

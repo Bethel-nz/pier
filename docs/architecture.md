@@ -1,6 +1,6 @@
 # Architecture
 
-Pier is a declarative, local-first proxy layer. You own the binary, the config, the certificates, and the routes. Pier reconciles what you declared in `pier.yaml` onto the exposure paths you chose, then tells you what is actually live.
+Pier is a proxy layer that runs on your machine and does what `pier.yaml` says. You own the binary, the config, the certificates, and the routes. Pier reconciles what you declared onto the exposure paths you chose, then tells you what is actually live.
 
 ```text
 pier.yaml

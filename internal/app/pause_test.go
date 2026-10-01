@@ -141,7 +141,7 @@ func TestOpenPausedService(t *testing.T) {
 func TestAddServiceWritesYAMLWithoutTouchingTailscale(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pier.yaml")
-	original := []byte("version: 1\nname: greppa\nservices:\n  web:\n    target: localhost:3000\n")
+	original := []byte("version: 1\nname: myapp\nservices:\n  web:\n    target: localhost:3000\n")
 	if err := os.WriteFile(path, original, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestAddServiceWritesYAMLWithoutTouchingTailscale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytesEqual(original[:len("version: 1\nname: greppa\n")], got[:len("version: 1\nname: greppa\n")]) {
+	if !bytesEqual(original[:len("version: 1\nname: myapp\n")], got[:len("version: 1\nname: myapp\n")]) {
 		t.Fatalf("AddService() rewrote the document start:\n%s", got)
 	}
 	if _, err := os.Stat(path); err != nil {

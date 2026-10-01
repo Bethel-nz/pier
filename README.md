@@ -2,7 +2,7 @@
 
 # Pier
 
-A privacy-first proxy you own.
+A proxy you own.
 
 Describe the local services in a project, run `pier up`, and get stable URLs — on your LAN, your devices, or the public internet. Pier runs on your machine, reads `pier.yaml`, and puts those services on the exposure path you chose. No SaaS tunnel owns the route. No third party sits in the middle of your traffic.
 
@@ -70,7 +70,7 @@ pier down
 
 ```yaml
 version: 1
-name: greppa
+name: myapp
 
 defaults:
   public: false
@@ -146,7 +146,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 
 ### Gotchas
 
-Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
+Every gotcha below came up in real use. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 - **Another device can't resolve `.local`.** Use the `lan` address `pier up` prints meanwhile. To fix the name, turn IPv6 on for both that device and the machine running Pier. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6.
   - Windows: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
