@@ -47,6 +47,7 @@ func Validate(project Project) []ValidationError {
 
 	claimedRoutes := make(map[string]string, len(project.Services))
 	claimedDomains := make(map[string]string, len(project.Services))
+	claimedHosts := make(map[string]string, len(project.Services))
 	for _, service := range project.Services {
 		if !serviceNamePattern.MatchString(service.Name) {
 			errors = append(errors, serviceError(service.Name, "name", "must match ^[a-z][a-z0-9-]*$"))
@@ -59,6 +60,8 @@ func Validate(project Project) []ValidationError {
 		}
 		if service.TCP() {
 			errors = append(errors, tcpErrors(service, claimedRoutes)...)
+		} else if !service.OnTailscale() {
+			// Served by Cloudflare: it claims no Tailscale listener or path.
 		} else if message := invalidPathMessage(service.Path); message != "" {
 			errors = append(errors, serviceError(service.Name, "path", message))
 		} else if route := fmt.Sprintf("https:%d:%s", service.HTTPSPort, service.Path); claimedRoutes[route] != "" {
@@ -78,6 +81,7 @@ func Validate(project Project) []ValidationError {
 				claimedDomains[service.Domain] = service.Name
 			}
 		}
+		errors = append(errors, providerErrors(service, claimedHosts)...)
 		errors = append(errors, runErrors(service)...)
 		if _, err := resolveThrottle(service.throttle); err != nil {
 			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))
@@ -89,6 +93,7 @@ func Validate(project Project) []ValidationError {
 			errors = append(errors, serviceError(service.Name, "capture", err.Error()))
 		}
 	}
+	errors = append(errors, domainErrors(project)...)
 	if (project.Local.CertFile == "") != (project.Local.KeyFile == "") {
 		errors = append(errors, ValidationError{Field: "local.tls", Message: "needs both cert and key"})
 	}

@@ -68,6 +68,7 @@ func ExecuteWith(ctx context.Context, args []string, stdout, stderr io.Writer, a
 		service := app.New(store, tailscale.ExecRunner{})
 		local = localname.NewDirectory(store)
 		service.EnableLocalNames(local)
+		service.EnableCloudflare(func() bool { return local.Interactive })
 		application = service
 	}
 	cmd := newRootCommand(stdout, stderr, application, local)

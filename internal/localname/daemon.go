@@ -61,6 +61,7 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 		tcp:           map[int]*localproxy.TCPForward{},
 		tcpTargets:    map[int]string{},
 		captures:      map[string]*projectCapture{},
+		tunnels:       map[string]*tunnelProcess{},
 		expire:        hooks.Expire,
 		expiring:      map[string]*expiry{},
 		responderDone: closedChan(),
@@ -74,6 +75,7 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 	defer removeHeartbeat(d.beat.PID)
 	defer d.closeServers()
 	defer d.closeLANPorts()
+	defer d.closeTunnels()
 	defer d.closeTaps() // first: captured requests are written before the heartbeat goes
 
 	tick := time.NewTicker(time.Second)
@@ -125,6 +127,7 @@ type daemon struct {
 	tcp           map[int]*localproxy.TCPForward
 	tcpTargets    map[int]string
 	captures      map[string]*projectCapture // by project ID
+	tunnels       map[string]*tunnelProcess  // cloudflared, by project ID
 	caPEM         []byte
 	startup       []string // warnings found once at startup, such as a port fallback
 	beat          Heartbeat
@@ -339,12 +342,15 @@ func (d *daemon) reconcile(now time.Time) bool {
 		})
 	}
 
+	tunnels := d.syncTunnels(saved, now)
+
 	d.beat.Names = statuses
 	d.beat.Taps = taps
+	d.beat.Tunnels = tunnels
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0 || len(taps) > 0 || windows
+	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows
 }
 
 // certificate loads a project's leaf, reloading it when the file changes.

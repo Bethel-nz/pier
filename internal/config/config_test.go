@@ -65,7 +65,7 @@ func TestNormalizeDefaults(t *testing.T) {
 			want: ResolvedService{
 				Name: "web", Target: "http://127.0.0.1:3000",
 				Host: "127.0.0.1", Port: 3000, HTTPSPort: 8443, Path: "/",
-				Protocol: ProtocolHTTP, Public: false,
+				Protocol: ProtocolHTTP, Public: false, Provider: ProviderTailscale,
 			},
 		},
 		{
@@ -74,7 +74,7 @@ func TestNormalizeDefaults(t *testing.T) {
 			want: ResolvedService{
 				Name: "api", Target: "http://127.0.0.1:4000",
 				Host: "127.0.0.1", Port: 4000, HTTPSPort: 443, Path: "/api",
-				Protocol: ProtocolHTTP, Public: true,
+				Protocol: ProtocolHTTP, Public: true, Provider: ProviderTailscale,
 			},
 		},
 	}
