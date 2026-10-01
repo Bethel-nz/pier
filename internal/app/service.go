@@ -69,6 +69,8 @@ type UpResult struct {
 	TailscaleSkipped string
 	// Warnings are public routes on this machine that this project does not manage.
 	Warnings []string
+	// Cloudflare is what this run set up in Cloudflare for provider: cloudflare services.
+	Cloudflare TunnelSetup
 }
 
 // DownRequest removes routes owned by the current project.
@@ -84,6 +86,10 @@ type DownResult struct {
 	TailscaleSkipped string
 	// KeptRoutes counts owned Tailscale routes left in place because Tailscale was skipped.
 	KeptRoutes int
+	// TunnelStopped names the Cloudflare Tunnel that stopped serving, if any.
+	TunnelStopped string
+	// NamesWithdrawn is set when the project's .local names stopped being served.
+	NamesWithdrawn bool
 }
 
 // StatusRequest reads configured services, health, and URLs.
@@ -181,6 +187,13 @@ type ServiceInfo struct {
 	Health     health.Result
 	// TCP is set for a raw TCP service, reached at host:port rather than a URL path.
 	TCP bool
+	// Cloudflare is the service's public hostname on Cloudflare, if any.
+	Cloudflare string
+	// CloudflareURL is set only while the tunnel is connected.
+	CloudflareURL string
+	// CloudflareState is connected, connecting, failed, paused, or down.
+	CloudflareState  string
+	CloudflareDetail string
 	// PublicSince is when the service's live Funnel route was made; zero if
 	// not public or unknown.
 	PublicSince time.Time
@@ -367,6 +380,7 @@ type Service struct {
 	copyURL    func(context.Context, string) error
 	addService func(path, name string, service config.Service) error
 	locals     LocalNames
+	tunnels    Tunnels
 }
 
 // LocalNames serves .local domains: certificates, trust, and the daemon.
@@ -453,8 +467,13 @@ func (s *Service) Down(ctx context.Context, req DownRequest) (DownResult, error)
 	if err := s.reviewPlan(sess.plan, false); err != nil {
 		return result, err
 	}
+	serving := sess.state.Tunnel
+	result.NamesWithdrawn = len(sess.state.Domains) > 0
 	if err := s.applyAndPersist(ctx, &sess, sess.state.Overrides, sess.state.Paused, false); err != nil {
 		return result, err
+	}
+	if serving.Serving() {
+		result.TunnelStopped = serving.Name
 	}
 	return result, nil
 }
@@ -491,9 +510,10 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 		withPublicUntil(result.Services, st.PublicUntil, st.Overrides, now)
 		result.Warnings = publicWarnings(actual, s.owners(), result.DNSName, now, nil)
 	}
-	if s.locals != nil && hasDomains(loaded.cfg) {
+	if s.locals != nil && (hasDomains(loaded.cfg) || loaded.cfg.HasCloudflare()) {
 		result.Local = s.locals.Status()
 		withLocal(result.Services, result.Local)
+		withTunnel(result.Services, result.Local, loaded.project.ID)
 	}
 	return result, nil
 }
@@ -523,11 +543,17 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 		local := s.locals.Status()
 		result.Local = &local
 	}
+	if loadErr == nil && loaded.cfg.HasCloudflare() {
+		result.Warnings = append(result.Warnings, s.cloudflareWarnings(loaded.project.ID)...)
+	}
 	return result, loadErr
 }
 
 // Share exposes a service through Funnel using the normal reconcile path.
 func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, error) {
+	if err := s.refuseCloudflare(req.Start, req.Service, "share"); err != nil {
+		return ShareResult{}, err
+	}
 	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		overrides[req.Service] = true
 		return nil
@@ -540,6 +566,9 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 
 // Unshare restores the configured public value using the normal reconcile path.
 func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResult, error) {
+	if err := s.refuseCloudflare(req.Start, req.Service, "unshare"); err != nil {
+		return UnshareResult{}, err
+	}
 	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
 		delete(overrides, req.Service)
 		return nil
@@ -747,9 +776,13 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict, re
 		}
 	}
 	result.Warnings = append(s.foreignPublic(&sess), untimedPublic(sess.plan, sess.cfg, overrides)...)
+	if sess.tunnel, result.Cloudflare, err = s.setupTunnel(ctx, &sess, paused, force); err != nil {
+		return result, err
+	}
 	err = s.applyAndPersist(ctx, &sess, overrides, paused, true)
 	result.Local = sess.local
 	withLocal(result.Services, sess.local)
+	withTunnel(result.Services, sess.local, sess.project.ID)
 	return result, err
 }
 
@@ -781,6 +814,8 @@ type session struct {
 	taps []state.Tap
 	// until is when each timed public window closes after this change.
 	until map[string]time.Time
+	// tunnel is the Cloudflare Tunnel after this change.
+	tunnel *state.Tunnel
 	// tailscaleSkipped says why Tailscale was left alone, when it is unavailable
 	// and the project still has local names to serve.
 	tailscaleSkipped string
@@ -832,8 +867,8 @@ func (s *Service) prepare(ctx context.Context, start string) (session, error) {
 		return sess, err
 	}
 	if _, err := s.ts.Check(ctx); err != nil {
-		// Local names do not need Tailscale: serve them and report Tailscale as skipped.
-		if !hasDomains(loaded.cfg) {
+		// Local names and Cloudflare do not need Tailscale: serve them and report Tailscale as skipped.
+		if !hasDomains(loaded.cfg) && !loaded.cfg.HasCloudflare() {
 			return sess, &PrerequisiteError{Err: err}
 		}
 		sess.tailscaleSkipped = (&PrerequisiteError{Err: err}).Error()
@@ -918,10 +953,12 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	domains := []state.LocalDomain(nil)
 	taps := []state.Tap(nil)
 	var until map[string]time.Time
+	tunnel := idleTunnel(sess.state.Tunnel)
 	if keepDomains {
 		domains = localDomains(sess.cfg, paused, sess.state.Domains)
 		taps = sess.taps
 		until = sess.until
+		tunnel = sess.tunnel
 	}
 	hadWork := needsDaemon(sess.state)
 	// Refuse a taken name before Tailscale changes, so a rejected up leaves nothing half-applied.
@@ -941,7 +978,8 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		sess.state.Local != settings
 	tapsChanged := !sameTaps(sess.state.Taps, taps) || (len(taps) > 0 && sess.state.Path != sess.project.Root) ||
 		!sameTimes(sess.state.PublicUntil, until)
-	if result.Verified == nil && !pausedChanged && !domainsChanged && !tapsChanged {
+	tunnelChanged := !sess.state.Tunnel.Equal(tunnel) || (tunnel.Serving() && sess.state.Path != sess.project.Root)
+	if result.Verified == nil && !pausedChanged && !domainsChanged && !tapsChanged && !tunnelChanged {
 		// Nothing to save, but the daemon may have stopped since: make it serve again.
 		return s.syncLocal(ctx, sess, domains, hadWork)
 	}
@@ -962,6 +1000,7 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	st.Domains = domains
 	st.Taps = taps
 	st.PublicUntil = until
+	st.Tunnel = tunnel
 	st.Local = settings
 	st.UpdatedAt = s.clock()
 	if err := s.store.Save(st); err != nil {
@@ -1042,7 +1081,7 @@ func effectiveServices(cfg config.Project, overrides map[string]bool) []config.R
 	services := append([]config.ResolvedService(nil), cfg.Services...)
 	for i, service := range services {
 		public, ok := overrides[service.Name]
-		if !ok {
+		if !ok || !service.OnTailscale() {
 			continue
 		}
 		services[i].Public = public
@@ -1070,6 +1109,9 @@ func desiredRoutes(proj project.Context, cfg config.Project, overrides, paused m
 func routesFromServices(proj project.Context, services []config.ResolvedService) []reconcile.Route {
 	routes := make([]reconcile.Route, 0, len(services))
 	for _, service := range services {
+		if !service.OnTailscale() {
+			continue
+		}
 		routes = append(routes, reconcile.Route{
 			Service:   service.Name,
 			ProjectID: proj.ID,
@@ -1135,18 +1177,22 @@ func serviceInfos(services []config.ResolvedService, dns string, healthByName ma
 	infos := make([]ServiceInfo, 0, len(services))
 	for _, service := range services {
 		info := ServiceInfo{
-			Name:      service.Name,
-			Target:    service.Target,
-			Host:      service.Host,
-			Port:      service.Port,
-			HTTPSPort: service.HTTPSPort,
-			Path:      service.Path,
-			Public:    service.Public,
-			Paused:    paused[service.Name],
-			URL:       routeURL(dns, reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path, TCP: service.TCP()}),
-			Domain:    service.Domain,
-			Health:    healthByName[service.Name],
-			TCP:       service.TCP(),
+			Name:       service.Name,
+			Target:     service.Target,
+			Host:       service.Host,
+			Port:       service.Port,
+			HTTPSPort:  service.HTTPSPort,
+			Path:       service.Path,
+			Public:     service.Public,
+			Paused:     paused[service.Name],
+			URL:        routeURL(dns, reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path, TCP: service.TCP()}),
+			Domain:     service.Domain,
+			Health:     healthByName[service.Name],
+			TCP:        service.TCP(),
+			Cloudflare: service.Cloudflare,
+		}
+		if !service.OnTailscale() {
+			info.URL, info.Path = "", "" // no Tailscale route; its URL is the Cloudflare one
 		}
 		if service.Domain != "" && paused[service.Name] {
 			info.LocalState = "paused"

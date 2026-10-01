@@ -94,6 +94,8 @@ services:
 
 By default services stay private. Set `public: true` (or a duration like `2h`) when a path should be reachable on the public internet — useful for webhooks and short demos. See [Public exposure](#public-exposure).
 
+Own a domain on Cloudflare? Set `domain: example.com` once, give a service `provider: cloudflare`, and it is served at `<service>.example.com` through a Cloudflare Tunnel. Pier drives `cloudflared` under the hood: the login, tunnel, DNS, and process. See [Cloudflare](docs/configuration.md#cloudflare).
+
 Databases and other non-HTTP servers use `protocol: tcp`. Pier forwards the raw connection on the paths you enabled, so `psql -h db.myapp.local` just works. See [TCP services](docs/configuration.md#tcp-services).
 
 ## Local names

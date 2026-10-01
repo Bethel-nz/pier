@@ -236,7 +236,7 @@ func shapingOf(t *state.Throttle) localproxy.Shaping {
 // .local names: for taps, or to close a public window.
 func daemonWork(saved []state.ProjectState) bool {
 	for _, project := range saved {
-		if project.Path != "" && (len(project.Taps) > 0 || project.OwnsTimedPublic()) {
+		if project.Path != "" && (len(project.Taps) > 0 || project.OwnsTimedPublic() || project.Tunnel.Serving()) {
 			return true
 		}
 	}

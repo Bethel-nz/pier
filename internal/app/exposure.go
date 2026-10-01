@@ -40,6 +40,9 @@ func withLiveRoutes(infos []ServiceInfo, services []config.ResolvedService, actu
 		info := &infos[i]
 		info.URL = ""
 		info.Public = false
+		if !service.OnTailscale() {
+			continue // served by Cloudflare; pier up removes any route it had
+		}
 		want := reconcile.Route{HTTPSPort: service.HTTPSPort, Path: service.Path, TCP: service.TCP()}
 		if route, ok := live[want.Key()]; ok {
 			info.URL = routeURL(dns, route)
