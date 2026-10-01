@@ -109,7 +109,7 @@ func testModel(fake *fakeTUI) model {
 		{Name: "webhook", Host: "localhost", Port: 8787, Path: "/hooks", Public: true, Health: health.Result{Status: health.StatusHealthy}, URL: "https://host.ts.net/hooks"},
 	}}
 	fake.doctor = app.DoctorResult{}
-	m := newModel(context.Background(), fake, project.Context{Root: "/tmp/greppa"}, Options{Width: 100, Height: 24})
+	m := newModel(context.Background(), fake, project.Context{Root: "/tmp/myapp"}, Options{Width: 100, Height: 24})
 	updated, _ := m.Update(statusLoadedMsg{Status: fake.status})
 	return updated.(model)
 }
@@ -120,7 +120,7 @@ func keyRunes(r rune) tea.KeyMsg {
 
 func TestInitialLoadRequestsStatusAndDoctor(t *testing.T) {
 	fake := &fakeTUI{}
-	m := newModel(context.Background(), fake, project.Context{Root: "/tmp/greppa"}, Options{Width: 100})
+	m := newModel(context.Background(), fake, project.Context{Root: "/tmp/myapp"}, Options{Width: 100})
 	cmd := m.Init()
 	if cmd == nil {
 		t.Fatal("Init() returned nil")
@@ -357,7 +357,7 @@ func TestWideViewRendersActivityAsItsOwnPanel(t *testing.T) {
 	if !strings.Contains(view, "\n"+activityTop) {
 		t.Fatalf("activity panel should sit below the project view on the right\n%s", view)
 	}
-	if !strings.Contains(view, iconActivity+" ACTIVITY · greppa") {
+	if !strings.Contains(view, iconActivity+" ACTIVITY · myapp") {
 		t.Fatalf("activity panel is not tied to the selected project\n%s", view)
 	}
 }

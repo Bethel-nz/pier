@@ -32,6 +32,7 @@ else
   (cd "$test_root/release" && shasum -a 256 "$asset" > checksums.txt)
 fi
 
+PIER_NO_MODIFY_PATH=1 \
 PIER_DOWNLOAD_BASE_URL="file://$test_root/release" \
 PIER_INSTALL_DIR="$test_root/bin" \
   bash "$root/scripts/install.sh"

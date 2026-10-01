@@ -71,7 +71,7 @@ func cloudflareEnv(t *testing.T) (*fakeEnv, *fakeTunnels, *fakeLocal) {
 	}
 	tunnels := &fakeTunnels{creds: creds}
 	report := localname.Report{Running: true, Tunnels: map[string]localname.TunnelStatus{
-		env.project.ID: {Project: env.project.ID, Name: "pier-greppa", State: localname.TunnelConnected},
+		env.project.ID: {Project: env.project.ID, Name: "pier-myapp", State: localname.TunnelConnected},
 	}}
 	return env, tunnels, &fakeLocal{report: report}
 }
@@ -91,12 +91,12 @@ func TestUpSetsUpTheTunnelOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Up() = %v", err)
 	}
-	want := []string{"login", "ensure pier-greppa", "route 6f1c api.example.com", "route 6f1c app.example.com"}
+	want := []string{"login", "ensure pier-myapp", "route 6f1c api.example.com", "route 6f1c app.example.com"}
 	if !reflect.DeepEqual(tunnels.calls, want) {
 		t.Fatalf("cloudflared calls = %v, want %v", tunnels.calls, want)
 	}
 	setup := result.Cloudflare
-	if !setup.LoggedIn || !setup.Created || setup.Tunnel != "pier-greppa" || len(setup.Routed) != 2 {
+	if !setup.LoggedIn || !setup.Created || setup.Tunnel != "pier-myapp" || len(setup.Routed) != 2 {
 		t.Fatalf("setup = %+v", setup)
 	}
 	saved := env.saved.Tunnel
@@ -150,7 +150,7 @@ func TestDownKeepsTheTunnelButServesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if down.TunnelStopped != "pier-greppa" {
+	if down.TunnelStopped != "pier-myapp" {
 		t.Fatalf("TunnelStopped = %q", down.TunnelStopped)
 	}
 	env.after, env.actual, env.applyRecorded = routes, nil, false // Tailscale as pier down left it

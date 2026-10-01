@@ -506,13 +506,13 @@ func newEnv() *fakeEnv {
 	public := true
 	return &fakeEnv{
 		project: project.Context{
-			Root:       "/tmp/greppa",
-			ConfigPath: "/tmp/greppa/pier.yaml",
+			Root:       "/tmp/myapp",
+			ConfigPath: "/tmp/myapp/pier.yaml",
 			ID:         "019f6429-aaaa-4bbb-8ccc-ddddeeeeffff",
 		},
 		raw: config.Config{
 			Version: 1,
-			Name:    "greppa",
+			Name:    "myapp",
 			Services: map[string]config.Service{
 				"web":     {Target: "localhost:3000"},
 				"api":     {Target: "localhost:4000", Path: "/api"},

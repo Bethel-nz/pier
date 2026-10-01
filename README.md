@@ -2,7 +2,7 @@
 
 # Pier
 
-A privacy-first proxy you own.
+A proxy you own.
 
 Describe the local services in a project, run `pier up`, and get stable URLs — on your LAN, your devices, or the public internet. Pier runs on your machine, reads `pier.yaml`, and puts those services on the exposure path you chose. No SaaS tunnel owns the route. No third party sits in the middle of your traffic.
 
@@ -28,7 +28,15 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.ps1 | iex
 ```
 
-The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory. Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
+The installers download the latest GitHub release, verify its SHA-256 checksum, and install Pier into a user-owned binary directory (`~/.local/bin` on macOS and Linux). Use `PIER_VERSION` to install a specific release or `PIER_INSTALL_DIR` to choose another destination.
+
+If that directory isn't on your `PATH`, the macOS/Linux installer asks before adding it to your shell's startup file (`.zshrc`, `.bash_profile` or `.bashrc`, or fish's `config.fish`). Pass `--yes` to add it without asking, or `--no-path` (or `PIER_NO_MODIFY_PATH=1`) to leave your startup files alone. It then prints the line to add yourself:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bethel-nz/pier/main/scripts/install.sh | bash -s -- --yes
+```
+
+The Windows installer adds its directory to your user `PATH`.
 
 From anywhere, with Go:
 
@@ -62,7 +70,7 @@ pier down
 
 ```yaml
 version: 1
-name: greppa
+name: myapp
 
 defaults:
   public: false
@@ -140,7 +148,7 @@ A longer copy lives in [`pier.example.yaml`](pier.example.yaml). Configuration d
 
 ### Gotchas
 
-Hit in real testing. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
+Every gotcha below came up in real use. Details in [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 - **Another device can't resolve `.local`.** Use the `lan` address `pier up` prints meanwhile. To fix the name, turn IPv6 on for both that device and the machine running Pier. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6.
   - Windows: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
