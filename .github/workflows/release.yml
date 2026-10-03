@@ -46,6 +46,8 @@ jobs:
 
       - name: Build release archives
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -55,7 +57,7 @@ jobs:
             local arch="$2"
             local directory="dist/pier_${os}_${arch}"
             mkdir -p "$directory"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$directory/pier" ./cmd/pier
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w -X github.com/Bethel-nz/pier/internal/cli.version=${RELEASE_TAG}" -o "$directory/pier" ./cmd/pier
             tar -czf "dist/pier_${os}_${arch}.tar.gz" -C "$directory" pier
           }
 
@@ -63,7 +65,7 @@ jobs:
             local arch="$1"
             local directory="dist/pier_windows_${arch}"
             mkdir -p "$directory"
-            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$directory/pier.exe" ./cmd/pier
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -ldflags="-s -w -X github.com/Bethel-nz/pier/internal/cli.version=${RELEASE_TAG}" -o "$directory/pier.exe" ./cmd/pier
             (cd "$directory" && zip -q "../pier_windows_${arch}.zip" pier.exe)
           }
 

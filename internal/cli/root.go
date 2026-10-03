@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
@@ -63,6 +64,7 @@ func ExecuteWith(ctx context.Context, args []string, stdout, stderr io.Writer, a
 	if application == nil {
 		store, err := state.Open()
 		if err != nil {
+			fmt.Fprintf(stderr, "Pier could not open its state folder: %v\n", err)
 			return err
 		}
 		service := app.New(store, tailscale.ExecRunner{})
@@ -75,14 +77,28 @@ func ExecuteWith(ctx context.Context, args []string, stdout, stderr io.Writer, a
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	return cmd.ExecuteContext(ctx)
+	err := cmd.ExecuteContext(ctx)
+	if err != nil && !started(cmd) {
+		// Cobra refused the command line before any command ran, so nothing
+		// has explained the error yet.
+		fmt.Fprintf(stderr, "Error: %v\nRun 'pier --help' for usage.\n", err)
+	}
+	return err
 }
+
+// started reports whether a command got past argument checks and ran.
+func started(cmd *cobra.Command) bool {
+	return cmd.Annotations[annotationStarted] == "true"
+}
+
+const annotationStarted = "pier.started"
 
 func newRootCommand(stdout, stderr io.Writer, application App, local *localname.Directory) *cobra.Command {
 	rt := &runtime{app: application, local: local, stdout: stdout, stderr: stderr}
 	cmd := &cobra.Command{
 		Use:           "pier",
 		Short:         "Describe local services and get stable Tailscale URLs",
+		Version:       Version(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -125,8 +141,10 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		newReplayCommand(rt),
 		newLocaldCommand(),
 	)
-	if local != nil {
-		cmd.PersistentPreRun = func(*cobra.Command, []string) {
+	cmd.SetVersionTemplate("pier {{.Version}}\n")
+	cmd.PersistentPreRun = func(*cobra.Command, []string) {
+		cmd.Annotations = map[string]string{annotationStarted: "true"}
+		if local != nil {
 			// pier up may ask the OS to trust Pier's CA, but only with a person at the terminal.
 			local.Interactive = prompt.StdioIsTTY() && !rt.json
 		}
