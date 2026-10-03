@@ -85,6 +85,11 @@ type Responder struct {
 
 	sendMu sync.Mutex
 
+	// interfaces lists the LAN interfaces; nil means lanInterfaces. Tests fake it.
+	interfaces func() map[int]netIface
+	// out sends a multicast packet; nil means sendMulticast. Tests record it.
+	out func(packet []byte, ifi *net.Interface)
+
 	// sendErr is the last failed send, so a blocked network is reported, not silent.
 	errMu     sync.Mutex
 	sendErr   error
@@ -245,6 +250,7 @@ func (r *Responder) advance(now time.Time) {
 			sends = append(sends, send{name: name, announce: true})
 		case e.state == Live && e.announces < 2:
 			e.announces++
+			e.next = now.Add(time.Second)
 			sends = append(sends, send{name: name, announce: true})
 		case e.state == Conflict:
 			// Try again: the other device may have left. If it is still
@@ -464,7 +470,7 @@ func (r *Responder) probeAll(name string) {
 		}
 		packet, err := probe(name, iface.addrs[0].IP)
 		if err == nil {
-			r.sendMulticast(packet, &iface.ifi)
+			r.multicastOut(packet, &iface.ifi)
 		}
 	}
 }
@@ -476,7 +482,7 @@ func (r *Responder) announceAll(name string, ttl uint32) {
 		}
 		packet, err := announcement(name, iface.addrs[0].IP, ttl)
 		if err == nil {
-			r.sendMulticast(packet, &iface.ifi)
+			r.multicastOut(packet, &iface.ifi)
 		}
 	}
 }
@@ -493,6 +499,14 @@ func (r *Responder) goodbyeAll() {
 	for _, name := range live {
 		r.announceAll(name, 0)
 	}
+}
+
+func (r *Responder) multicastOut(packet []byte, ifi *net.Interface) {
+	if r.out != nil {
+		r.out(packet, ifi)
+		return
+	}
+	r.sendMulticast(packet, ifi)
 }
 
 // sendMulticast sends to both mDNS groups, so a network that drops one
@@ -566,8 +580,14 @@ func (r *Responder) snapshot() []netIface {
 
 // refreshInterfaces joins the mDNS group on new LAN interfaces and forgets
 // ones that went away, so a new Wi-Fi network is served without a restart.
+// When an address changes, peers still cache the old one: Pier sends a
+// goodbye for it and announces every live name again (RFC 6762 §8.3, §10.1).
 func (r *Responder) refreshInterfaces() {
-	found := lanInterfaces()
+	list := r.interfaces
+	if list == nil {
+		list = lanInterfaces
+	}
+	found := list()
 	self := map[string]bool{}
 	for _, iface := range found {
 		for _, addr := range iface.addrs {
@@ -600,10 +620,75 @@ func (r *Responder) refreshInterfaces() {
 			}
 		}
 	}
+	gone, changed := diffInterfaces(previous, found)
 	r.mu.Lock()
 	r.ifaces = found
 	r.self = self
+	var live []string
+	for name, e := range r.names {
+		if e.state != Live {
+			continue
+		}
+		live = append(live, name)
+		if changed {
+			e.announces = 0 // advance announces twice more, a second apart
+			e.next = time.Now()
+		}
+	}
 	r.mu.Unlock()
+	sort.Strings(live)
+	for _, old := range gone {
+		for _, name := range live {
+			if packet, err := announcement(name, old.ip, 0); err == nil {
+				r.multicastOut(packet, &old.ifi)
+			}
+		}
+	}
+}
+
+// staleAddr is an address that left an interface which is still up.
+type staleAddr struct {
+	ifi net.Interface
+	ip  net.IP
+}
+
+// diffInterfaces lists the addresses that left a surviving interface, and
+// reports whether any interface is new or gained or lost an address.
+func diffInterfaces(previous, found map[int]netIface) (gone []staleAddr, changed bool) {
+	indexes := make([]int, 0, len(found))
+	for index := range found {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		now := found[index]
+		before, ok := previous[index]
+		if !ok {
+			changed = true
+			continue
+		}
+		for _, addr := range before.addrs {
+			if !hasIP(now.addrs, addr.IP) {
+				gone = append(gone, staleAddr{ifi: now.ifi, ip: addr.IP})
+				changed = true
+			}
+		}
+		for _, addr := range now.addrs {
+			if !hasIP(before.addrs, addr.IP) {
+				changed = true
+			}
+		}
+	}
+	return gone, changed
+}
+
+func hasIP(addrs []*net.IPNet, ip net.IP) bool {
+	for _, addr := range addrs {
+		if addr.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // virtualPrefixes are interfaces phones on the LAN cannot reach.
