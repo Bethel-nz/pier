@@ -229,3 +229,25 @@ func TestPrepareIssuesTheSetupNameCertificate(t *testing.T) {
 		t.Fatalf("certificate names %v, want pier.local", leaf.DNSNames)
 	}
 }
+
+func TestSetupLeaseExpiresUnlessRenewed(t *testing.T) {
+	useConfigDir(t)
+	d := NewDirectory(state.New(filepath.Join(t.TempDir(), "projects")))
+	now := time.Now()
+	if setupHeld(now) {
+		t.Fatal("setup held before pier --setup ran")
+	}
+	if err := d.HoldSetup(); err != nil {
+		t.Fatal(err)
+	}
+	if !setupHeld(now) {
+		t.Fatal("setup not held right after HoldSetup")
+	}
+	if setupHeld(now.Add(setupLease + time.Second)) {
+		t.Fatal("a lease nobody renewed is still held")
+	}
+	d.ReleaseSetup()
+	if setupHeld(now) {
+		t.Fatal("setup still held after ReleaseSetup")
+	}
+}

@@ -107,8 +107,10 @@ func newInitCommand(rt *runtime) *cobra.Command {
 				return rt.renderer("init").Error(err)
 			}
 			fmt.Fprintf(rt.stdout, "initialized %s\n", ctx.ConfigPath)
-			fmt.Fprintf(rt.stdout, "devices      once pier up serves a .local name, open http://%s%s on each phone or laptop to trust Pier\n",
-				localproxy.SetupHost, localproxy.SetupPath)
+			fmt.Fprintln(rt.stdout, "")
+			fmt.Fprintln(rt.stdout, "next         run pier --setup to finish setting up this machine. It trusts Pier's")
+			fmt.Fprintf(rt.stdout, "             certificate here and serves http://%s%s, where each phone,\n", localproxy.SetupHost, localproxy.SetupPath)
+			fmt.Fprintln(rt.stdout, "             tablet, or laptop trusts it once. Then add services to pier.yaml and run pier up")
 			return nil
 		},
 	}

@@ -277,3 +277,14 @@ func TestJSONHasNoColorSequences(t *testing.T) {
 		t.Fatalf("JSON envelope = %s", stdout)
 	}
 }
+
+func TestInitPointsToSetup(t *testing.T) {
+	t.Chdir(t.TempDir())
+	var out bytes.Buffer
+	if err := ExecuteWith(context.Background(), []string{"init", "demo"}, &out, &out, &fakeApp{}); err != nil {
+		t.Fatalf("init: %v\n%s", err, out.String())
+	}
+	if got := out.String(); !strings.Contains(got, "run pier --setup") || !strings.Contains(got, "http://pier.local/setup") {
+		t.Fatalf("init said:\n%s\nwant it to point to pier --setup and pier.local/setup", got)
+	}
+}

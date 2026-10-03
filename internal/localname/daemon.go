@@ -231,7 +231,8 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 	d.beat.Error = ""
 	routes, conflicts := Routes(saved)
-	if len(routes) > 0 && !d.lan {
+	setupOnly := setupHeld(now) // pier --setup: serve pier.local before any project has a name
+	if (len(routes) > 0 || setupOnly) && !d.lan {
 		if err := d.openLAN(); err != nil {
 			// pier up reads the reason from the heartbeat; the next tick tries again.
 			d.beat.Error = err.Error()
@@ -360,7 +361,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows
+	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows || setupOnly
 }
 
 // setupName adds pier.local's certificate to served, once the LAN is open and

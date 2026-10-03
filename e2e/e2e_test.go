@@ -167,6 +167,67 @@ func build(t *testing.T, pkg, out string) string {
 
 // isolated is this process's environment with every per-user directory Pier
 // uses pointed inside home.
+// TestSetup runs pier --setup with no project: the daemon serves
+// pier.local/setup until Ctrl-C, then exits.
+func TestSetup(t *testing.T) {
+	pier := build(t, "../cmd/pier", filepath.Join(t.TempDir(), "pier"))
+	home := t.TempDir()
+	env := isolated(home)
+	t.Cleanup(func() {
+		cmd := exec.Command(pier, "clean")
+		cmd.Env = env
+		_ = cmd.Run()
+	})
+
+	setup := exec.Command(pier, "--setup", "--no-color")
+	setup.Dir, setup.Env = t.TempDir(), env
+	output := &lines{}
+	setup.Stdout, setup.Stderr = output, output
+	startGroup(setup)
+	if err := setup.Start(); err != nil {
+		t.Fatal(err)
+	}
+	setupURL := output.waitFor(t, regexp.MustCompile(`(?m)^setup\s+open (http\S+)`), 60*time.Second)
+	addr := "127.0.0.1:" + portOf(t, setupURL, "80")
+	if strings.HasPrefix(setupURL, "https://") {
+		addr = "127.0.0.1:" + portOf(t, setupURL, "443")
+	}
+	page := getAs(t, setupURL, addr)
+	if !strings.Contains(page, "Pier Local CA") {
+		t.Fatalf("%s served %q, want the setup page", setupURL, page)
+	}
+
+	interrupt(t, setup)
+	done := make(chan error, 1)
+	go func() { done <- setup.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		_ = setup.Process.Kill()
+		t.Fatalf("pier --setup did not exit after Ctrl-C:\n%s", output)
+	}
+	waitClosed(t, addr, "the setup page")
+}
+
+// getAs fetches raw by dialing addr, with raw's host as Host (and SNI).
+func getAs(t *testing.T, raw, addr string) string {
+	t.Helper()
+	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // the CA is not trusted on a CI runner
+	}}
+	resp, err := client.Get(raw)
+	if err != nil {
+		t.Fatalf("GET %s via %s: %v", raw, addr, err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return string(data)
+}
+
 func isolated(home string) []string {
 	env := os.Environ()
 	return append(env,
