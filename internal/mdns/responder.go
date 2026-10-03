@@ -760,6 +760,32 @@ func LANAddress() net.IP {
 	return lan[0]
 }
 
+// Address is one of this machine's LAN addresses and the interface it is on.
+type Address struct {
+	IP        net.IP
+	Interface int
+}
+
+// LANAddresses lists every IPv4 address other devices on the LAN can reach
+// this machine at, one or more per LAN interface: the LANAddress first, then
+// the rest by address. A machine on Ethernet and Wi-Fi at once has both.
+func LANAddresses() []Address {
+	var out []Address
+	for index, iface := range lanInterfaces() {
+		for _, addr := range iface.addrs {
+			out = append(out, Address{IP: addr.IP, Interface: index})
+		}
+	}
+	primary := LANAddress()
+	sort.Slice(out, func(i, j int) bool {
+		if a, b := out[i].IP.Equal(primary), out[j].IP.Equal(primary); a != b {
+			return a
+		}
+		return out[i].IP.String() < out[j].IP.String()
+	})
+	return out
+}
+
 func isVirtual(name string) bool {
 	lower := strings.ToLower(name)
 	for _, prefix := range virtualPrefixes {

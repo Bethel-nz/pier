@@ -62,7 +62,7 @@ For `.local` and `lan` URLs, see below and the gotchas in the [README](../README
 Pier publishes each `.local` name through the system's mDNS responder (mDNSResponder on macOS, the DNS client on Windows) or, on Linux, its own. If a name works on this machine but not on another device:
 
 1. Open `https://<this machine's LAN IP>/` from that device. Pier's "Unknown name" page means the device reaches Pier and only name lookup is failing. A hang means a firewall, or macOS Local Network permission, is blocking Pier.
-2. On macOS, `dns-sd -G v4 myapp.local` should print this machine's LAN IP. If it does, Pier is publishing correctly.
+2. On macOS, `dns-sd -G v4 myapp.local` should print this machine's LAN IP, once for each network it is on. If it does, Pier is publishing correctly.
 3. Make sure IPv6 is on for the other device's network adapter. Many home routers drop IPv4 multicast between Wi-Fi clients but pass IPv6, so with IPv6 off the device never hears the answer. On Windows, run in an administrator shell: `Enable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6`, then `ipconfig /flushdns`.
 4. If the router drops both, look for "AP isolation", "client isolation", or "multicast" settings on the router.
 5. Meanwhile use the plain-HTTP `lan` address `pier up` prints, or scan `pier qr --lan`.

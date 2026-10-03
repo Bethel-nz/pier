@@ -3,74 +3,94 @@
 package localname
 
 import (
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
+
+	"github.com/Bethel-nz/pier/internal/dnssd"
+	"github.com/Bethel-nz/pier/internal/mdns"
 )
 
-// instancePrefix marks Pier's dns-sd registrations so a sweep can find them
-// after a crash, even though no Pier process remembers their pids.
-const instancePrefix = "pier-"
+// recordTTL matches what mDNSResponder uses for host address records.
+const recordTTL = 120
 
-// dnssd registers names with macOS's mDNSResponder through `dns-sd -P`.
-// Each registration lives as long as its dns-sd process.
-type dnssd struct{}
+// responder registers names with macOS's mDNSResponder over its client
+// socket, one connection per name. The connection holds an A record on each
+// LAN interface, so a Mac on Ethernet and Wi-Fi answers each network with
+// the address that network can reach, and an NSEC that says the name has no
+// AAAA, so an IPv6 lookup is answered at once instead of timing out. Closing
+// the connection withdraws them all.
+type responder struct{}
 
-type dnssdHandle struct {
-	cmd     *exec.Cmd
-	started time.Time
-	done    chan struct{}
-}
+type registration struct{ conn *dnssd.Conn }
 
 func systemBackend() backend {
-	if _, err := exec.LookPath("dns-sd"); err != nil {
+	if _, err := os.Stat(dnssd.SocketPath); err != nil {
 		return nil
 	}
-	return dnssd{}
+	return responder{}
 }
 
-func (dnssd) kind() string { return "mDNSResponder" }
+func (responder) kind() string { return "mDNSResponder" }
 
-func (dnssd) register(name, address string, port int) (handle, error) {
-	label := strings.TrimSuffix(name, ".local")
-	cmd := exec.Command("dns-sd", "-P", instancePrefix+label, "_http._tcp", "local",
-		strconv.Itoa(port), name, address)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
+func (responder) register(name string, addrs []mdns.Address, _ int) (handle, error) {
+	conn, err := dnssd.Dial(dnssd.SocketPath)
+	if err != nil {
 		return nil, err
 	}
-	h := &dnssdHandle{cmd: cmd, started: time.Now(), done: make(chan struct{})}
-	go func() { _ = cmd.Wait(); close(h.done) }()
-	return h, nil
+	for _, rec := range hostRecords(name, addrs) {
+		if err := conn.Register(rec); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+	}
+	return registration{conn: conn}, nil
 }
 
-// live holds once dns-sd has kept running for a moment, since it exits as soon
-// as mDNSResponder rejects the record.
-func (h *dnssdHandle) live() bool { return time.Since(h.started) > 500*time.Millisecond }
+// hostRecords are the A records for name, each scoped to its interface, and
+// on each of those interfaces an NSEC stating A is the only type.
+func hostRecords(name string, addrs []mdns.Address) []dnssd.Record {
+	var records []dnssd.Record
+	seen := map[int]bool{}
+	for _, addr := range addrs {
+		typ, data := dnssd.AddressData(addr.IP)
+		if typ != dnssd.TypeA {
+			continue
+		}
+		records = append(records, dnssd.Record{Name: name, Type: typ, Interface: uint32(addr.Interface), Data: data, TTL: recordTTL})
+		if !seen[addr.Interface] {
+			seen[addr.Interface] = true
+			records = append(records, dnssd.Record{Name: name, Type: dnssd.TypeNSEC, Interface: uint32(addr.Interface), Data: dnssd.NSECData(name, dnssd.TypeA), TTL: recordTTL})
+		}
+	}
+	return records
+}
 
-func (h *dnssdHandle) exited() bool {
+// live holds once mDNSResponder finished probing every record.
+func (r registration) live() bool { return r.conn.Live() }
+
+// exited holds when mDNSResponder dropped the registration, such as when
+// another device claimed the name.
+func (r registration) exited() bool {
 	select {
-	case <-h.done:
+	case <-r.conn.Done():
 		return true
 	default:
 		return false
 	}
 }
 
-func (h *dnssdHandle) stop() {
-	_ = h.cmd.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-h.done:
-	case <-time.After(time.Second):
-		_ = h.cmd.Process.Kill()
-	}
-}
+func (r registration) stop() { _ = r.conn.Close() }
 
-// sweepPublishers stops dns-sd registrations a previous Pier left behind,
-// found by the instance-name marker. The daemon runs it when it starts, and
-// pier down runs it when nothing is left to serve.
+// instancePrefix marks the dns-sd registrations older Pier versions made.
+const instancePrefix = "pier-"
+
+// sweepPublishers stops dns-sd registrations an older Pier left behind,
+// found by the instance-name marker; those records would otherwise answer
+// alongside this Pier's. Pier's own registrations need no sweep: they end
+// with the connection, which ends with the process.
 func sweepPublishers() {
 	out, err := exec.Command("ps", "-Ao", "pid=,command=").Output()
 	if err != nil {

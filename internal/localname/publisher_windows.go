@@ -5,13 +5,14 @@ package localname
 import (
 	"encoding/binary"
 	"fmt"
-	"net"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
+
+	"github.com/Bethel-nz/pier/internal/mdns"
 )
 
 const (
@@ -89,10 +90,15 @@ func systemBackend() backend {
 
 func (dnsClient) kind() string { return "Windows DNS client" }
 
-func (dnsClient) register(name, address string, port int) (handle, error) {
-	ip := net.ParseIP(address).To4()
+// register publishes the primary address only: the DNS client takes one
+// address per name, and a second registration of the name would conflict.
+func (dnsClient) register(name string, addrs []mdns.Address, port int) (handle, error) {
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no LAN address to publish %s at", name)
+	}
+	ip := addrs[0].IP.To4()
 	if ip == nil {
-		return nil, fmt.Errorf("%s is not an IPv4 address", address)
+		return nil, fmt.Errorf("%s is not an IPv4 address", addrs[0].IP)
 	}
 	host, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
