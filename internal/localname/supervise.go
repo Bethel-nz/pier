@@ -41,26 +41,26 @@ type Probe struct {
 	// Status is the HTTP status, 0 when the request failed.
 	Status    int       `json:"status,omitempty"`
 	LatencyMS int64     `json:"latencyMs,omitempty"`
-	CheckedAt time.Time `json:"checkedAt"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
 	// Error says why the URL counts as failing: no answer, or a 5xx.
 	Error        string    `json:"error,omitempty"`
-	LastSuccess  time.Time `json:"lastSuccess,omitempty"`
-	FailingSince time.Time `json:"failingSince,omitempty"`
+	LastSuccess  time.Time `json:"lastSuccess,omitzero"`
+	FailingSince time.Time `json:"failingSince,omitzero"`
 }
 
 // Supervision is the daemon's running record for one project.
 type Supervision struct {
 	Project   string    `json:"project"`
-	CheckedAt time.Time `json:"checkedAt,omitempty"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
 	// Error is why the last check could not finish, such as Tailscale being down.
 	Error      string    `json:"error,omitempty"`
-	ErrorSince time.Time `json:"errorSince,omitempty"`
-	NextCheck  time.Time `json:"nextCheck,omitempty"`
+	ErrorSince time.Time `json:"errorSince,omitzero"`
+	NextCheck  time.Time `json:"nextCheck,omitzero"`
 	Note       string    `json:"note,omitempty"`
 	// Repairs counts routes put back since the daemon started.
 	Repairs int `json:"repairs,omitempty"`
 	// Repaired is when each service's route was last put back.
-	Repaired map[string]time.Time `json:"repaired,omitempty"`
+	Repaired map[string]time.Time `json:"repaired,omitzero"`
 	Probes   []Probe              `json:"probes,omitempty"`
 }
 

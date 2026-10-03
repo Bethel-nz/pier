@@ -2,7 +2,9 @@ package localname
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -107,5 +109,15 @@ func TestBusyPassKeepsTheRecordAndRetriesSoon(t *testing.T) {
 	failures := record.merge(SupervisePass{Busy: true}, nil, now, 2)
 	if failures != 2 || len(record.Probes) != 1 || record.NextCheck.Sub(now) != busyRetry {
 		t.Fatalf("record = %+v failures=%d, want it kept and a retry in %v", record, failures, busyRetry)
+	}
+}
+
+func TestSupervisionLeavesUnsetTimesOut(t *testing.T) {
+	data, err := json.Marshal(Supervision{Project: "p1", Probes: []Probe{{URL: "https://host.ts.net/"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "0001-01-01") {
+		t.Fatalf("heartbeat JSON = %s, want unset times left out", data)
 	}
 }
