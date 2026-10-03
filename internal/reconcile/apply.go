@@ -22,7 +22,9 @@ type ApplyResult struct {
 	Completed []Operation
 	Failed    *Operation
 	Actual    []Route
-	Verified  []Route
+	// Observed is set when Actual was read after the mutations, even if empty.
+	Observed bool
+	Verified []Route
 }
 
 // Mismatch is one expected-versus-actual route difference.
@@ -61,11 +63,11 @@ func Apply(ctx context.Context, plan Plan, driver Driver) (ApplyResult, error) {
 			result := ApplyResult{
 				Completed: append([]Operation(nil), completed...),
 				Failed:    &failed,
-				Actual:    actual,
 			}
 			if routesErr != nil {
 				return result, errors.Join(err, fmt.Errorf("unable to re-read Tailscale routes: %w", routesErr))
 			}
+			result.Actual, result.Observed = actual, true
 			return result, err
 		}
 		completed = append(completed, op)
@@ -81,12 +83,14 @@ func Apply(ctx context.Context, plan Plan, driver Driver) (ApplyResult, error) {
 		return ApplyResult{
 			Completed: completed,
 			Actual:    actual,
+			Observed:  true,
 		}, &VerificationError{Mismatches: mismatches}
 	}
 
 	return ApplyResult{
 		Completed: completed,
 		Actual:    actual,
+		Observed:  true,
 		Verified:  expectedRoutes(plan.Operations),
 	}, nil
 }

@@ -490,6 +490,7 @@ type fakeEnv struct {
 	checkErr     error
 	routesErr    error
 	applyErr     error
+	applyFailAt  int // 1-based apply call that fails with applyErr; 0 fails every call
 	loadStateErr error
 	saveErr      error
 
@@ -640,6 +641,9 @@ func (e *fakeEnv) Apply(_ context.Context, op reconcile.Operation) error {
 	}
 	e.applyCalls = append(e.applyCalls, op)
 	e.mutated = true
+	if e.applyFailAt > 0 && len(e.applyCalls) != e.applyFailAt {
+		return nil
+	}
 	return e.applyErr
 }
 
