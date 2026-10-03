@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -13,6 +15,15 @@ const (
 	funnelCapability = "funnel"
 	httpsCapability  = "https"
 )
+
+// CLIDocs is Tailscale's page on finding and turning on its command-line
+// tool, which is what Pier runs.
+const CLIDocs = "https://tailscale.com/kb/1080/cli"
+
+// cliHint says how to get a working tailscale command on each platform.
+const cliHint = "Turn on Tailscale's CLI: " + CLIDocs +
+	". On macOS: Tailscale → Settings → CLI integration → Install Now; with the App Store app, link it: " +
+	"sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale"
 
 // Capabilities describes the Tailscale prerequisites Pier can use.
 type Capabilities struct {
@@ -22,6 +33,9 @@ type Capabilities struct {
 	MagicDNS      bool
 	HTTPS         bool
 	Funnel        bool
+	// CLIWarning is set when the tailscale command does not match the
+	// running Tailscale, such as an old Homebrew CLI beside the app.
+	CLIWarning string
 }
 
 // Status holds node/session fields from `tailscale status --json` and, when
@@ -34,6 +48,8 @@ type Status struct {
 	MagicDNS     bool
 	HTTPS        bool
 	Funnel       bool
+	// CLIWarning is set when the CLI and the daemon report different versions.
+	CLIWarning string
 }
 
 // ErrorKind identifies a stable class of Tailscale diagnostic failure.
@@ -90,8 +106,11 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 
 	name, args := versionCommand()
 	_, stderr, err := c.runner.Run(ctx, name, args...)
+	if err != nil && daemonUnavailableDiagnostic(string(stderr)) {
+		return Capabilities{Installed: true}, daemonUnavailable(string(stderr), err)
+	}
 	if err != nil {
-		commandErr := classifyRunError(ctx, err, stderr, "Unable to read the Tailscale version")
+		commandErr := classifyRunError(ctx, err, stderr, "The tailscale command on your PATH does not work. "+cliHint)
 		if commandErr.Kind != ErrorMissingExecutable {
 			capabilities.Installed = true
 		}
@@ -103,21 +122,17 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	if err != nil {
 		var commandErr *CommandError
 		if errors.As(err, &commandErr) && commandErr.Kind == ErrorCommandFailed && daemonUnavailableDiagnostic(commandErr.stderr) {
-			return capabilities, &CommandError{
-				Kind:    ErrorDaemonUnavailable,
-				summary: "Tailscale is installed, but its daemon is not running",
-				stderr:  commandErr.stderr,
-				cause:   commandErr.cause,
-			}
+			return capabilities, daemonUnavailable(commandErr.stderr, commandErr.cause)
 		}
 		return capabilities, err
 	}
+	capabilities.CLIWarning = status.CLIWarning
 
 	capabilities.DaemonRunning = status.BackendState != "Stopped"
 	if !capabilities.DaemonRunning {
 		return capabilities, &CommandError{
 			Kind:    ErrorDaemonUnavailable,
-			summary: "Tailscale is installed, but its daemon is not running",
+			summary: "Tailscale is installed but turned off. Turn it on in the Tailscale app, or run tailscale up",
 		}
 	}
 
@@ -159,10 +174,39 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	return capabilities, nil
 }
 
+// daemonUnavailable is a tailscale command that works but cannot reach
+// Tailscale itself: the app is closed, or the command belongs to another
+// install than the one running.
+func daemonUnavailable(stderr string, cause error) *CommandError {
+	return &CommandError{
+		Kind: ErrorDaemonUnavailable,
+		summary: "Tailscale is installed, but its daemon is not running. Open the Tailscale app (or start tailscaled). " +
+			"If it is running, the tailscale command on your PATH may belong to another install. " + cliHint,
+		stderr: stderr,
+		cause:  cause,
+	}
+}
+
 func daemonUnavailableDiagnostic(stderr string) bool {
 	diagnostic := strings.ToLower(stderr)
+	if strings.Contains(diagnostic, "failed to connect to local tailscale") || strings.Contains(diagnostic, "is tailscale running?") {
+		return true
+	}
 	return strings.Contains(diagnostic, "tailscaled") &&
 		(strings.Contains(diagnostic, "not running") || strings.Contains(diagnostic, "doesn't appear to be running"))
+}
+
+var versionMismatch = regexp.MustCompile(`client version "([^"]+)" != tailscaled server version "([^"]+)"`)
+
+// cliWarning explains the CLI's own warning that it does not match the
+// running Tailscale; Pier's commands may then fail in ways that are hard to read.
+func cliWarning(stderr string) string {
+	match := versionMismatch.FindStringSubmatch(stderr)
+	if match == nil {
+		return ""
+	}
+	return fmt.Sprintf("the tailscale command on your PATH is version %s, but Tailscale runs %s. Use the CLI that came with Tailscale: %s",
+		strings.SplitN(match[1], "-", 2)[0], strings.SplitN(match[2], "-", 2)[0], CLIDocs)
 }
 
 func funnelUnauthorizedDiagnostic(stderr string) bool {
@@ -179,6 +223,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, classifyRunError(ctx, err, stderr, "Unable to read Tailscale status")
 	}
+	warning := cliWarning(string(stderr))
 
 	var response nodeStatusResponse
 	if err := json.Unmarshal(stdout, &response); err != nil {
@@ -193,6 +238,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		BackendState: response.BackendState,
 		HaveNodeKey:  response.HaveNodeKey,
 		MagicDNS:     response.CurrentTailnet.MagicDNSEnabled,
+		CLIWarning:   warning,
 	}
 	if response.Self != nil {
 		status.DNSName = response.Self.DNSName
@@ -250,9 +296,8 @@ func classifyRunError(ctx context.Context, err error, stderr []byte, summary str
 	if errors.As(err, &executableErr) {
 		return &CommandError{
 			Kind: ErrorMissingExecutable,
-			summary: "Tailscale is missing. Install it from https://tailscale.com/download. " +
-				"On macOS with the app installed, also link its CLI: " +
-				"sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale",
+			summary: "Pier cannot find the tailscale command. Install Tailscale from https://tailscale.com/download. " +
+				"If it is installed, its CLI is not on your PATH. " + cliHint,
 			stderr: string(stderr),
 			cause:  err,
 		}

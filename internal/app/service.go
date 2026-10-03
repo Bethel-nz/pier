@@ -531,9 +531,12 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 	caps, tsErr := s.ts.Check(ctx)
 	result.Capabilities = caps
 	result.TailscaleErr = tsErr
+	if caps.CLIWarning != "" {
+		result.Warnings = append(result.Warnings, caps.CLIWarning)
+	}
 	if tsErr == nil {
 		if actual, err := s.ts.Routes(ctx); err == nil {
-			result.Warnings = publicWarnings(actual, s.owners(), s.lookupDNS(ctx, ""), s.clock(), nil)
+			result.Warnings = append(result.Warnings, publicWarnings(actual, s.owners(), s.lookupDNS(ctx, ""), s.clock(), nil)...)
 		}
 	}
 	if mismatch := pathMismatch(); mismatch != "" {

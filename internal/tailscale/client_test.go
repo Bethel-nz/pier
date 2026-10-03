@@ -59,7 +59,7 @@ func TestClientCheck(t *testing.T) {
 		if capabilities != (Capabilities{}) {
 			t.Errorf("Check() capabilities = %#v, want no available capabilities", capabilities)
 		}
-		assertCommandError(t, err, ErrorMissingExecutable, "Tailscale is missing. Install it from https://tailscale.com/download. On macOS with the app installed, also link its CLI: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale", "")
+		assertCommandError(t, err, ErrorMissingExecutable, "Pier cannot find the tailscale command. Install Tailscale from https://tailscale.com/download. If it is installed, its CLI is not on your PATH. "+cliHint, "")
 		assertCalls(t, runner.calls, call{name: "tailscale", args: []string{"version"}})
 	})
 
@@ -74,11 +74,45 @@ func TestClientCheck(t *testing.T) {
 		if capabilities != (Capabilities{Installed: true}) {
 			t.Errorf("Check() capabilities = %#v, want installed-only result", capabilities)
 		}
-		assertCommandError(t, err, ErrorDaemonUnavailable, "Tailscale is installed, but its daemon is not running", "failed to connect to local tailscaled; it doesn't appear to be running\n")
+		assertCommandError(t, err, ErrorDaemonUnavailable, daemonUnavailable("", nil).Error(), "failed to connect to local tailscaled; it doesn't appear to be running\n")
 		assertCalls(t, runner.calls,
 			call{name: "tailscale", args: []string{"version"}},
 			call{name: "tailscale", args: []string{"status", "--json"}},
 		)
+	})
+
+	t.Run("sends a CLI that cannot reach Tailscale to the CLI docs", func(t *testing.T) {
+		runner := &fakeRunner{queued: []fakeResponse{
+			{err: []byte("failed to connect to local Tailscale service; is Tailscale running?\n"), runErr: errors.New("exit status 1")},
+		}}
+
+		capabilities, err := NewClient(runner).Check(context.Background())
+
+		if capabilities != (Capabilities{Installed: true}) {
+			t.Errorf("Check() capabilities = %#v, want installed-only", capabilities)
+		}
+		commandErr := assertCommandError(t, err, ErrorDaemonUnavailable, daemonUnavailable("", nil).Error(), "failed to connect to local Tailscale service; is Tailscale running?\n")
+		if !strings.Contains(commandErr.Error(), CLIDocs) {
+			t.Errorf("error %q does not point to %s", commandErr.Error(), CLIDocs)
+		}
+	})
+
+	t.Run("warns when the CLI does not match the running Tailscale", func(t *testing.T) {
+		runner := &fakeRunner{queued: []fakeResponse{
+			{out: []byte("1.92.5\n")},
+			{out: connectedStatus, err: []byte(`Warning: client version "1.92.5-tb1eb1a05c" != tailscaled server version "1.102.4-t3caf7d9e7-g084ee3b64"` + "\n")},
+			{out: []byte("{}\n")},
+		}}
+
+		capabilities, err := NewClient(runner).Check(context.Background())
+
+		if err != nil {
+			t.Fatalf("Check() error = %v", err)
+		}
+		want := "the tailscale command on your PATH is version 1.92.5, but Tailscale runs 1.102.4. Use the CLI that came with Tailscale: " + CLIDocs
+		if capabilities.CLIWarning != want {
+			t.Errorf("CLIWarning = %q, want %q", capabilities.CLIWarning, want)
+		}
 	})
 
 	t.Run("preserves a generic node status command failure", func(t *testing.T) {
@@ -106,7 +140,7 @@ func TestClientCheck(t *testing.T) {
 		if capabilities != (Capabilities{Installed: true}) {
 			t.Errorf("Check() capabilities = %#v, want installed-only result", capabilities)
 		}
-		assertCommandError(t, err, ErrorDaemonUnavailable, "Tailscale is installed, but its daemon is not running", "")
+		assertCommandError(t, err, ErrorDaemonUnavailable, "Tailscale is installed but turned off. Turn it on in the Tailscale app, or run tailscale up", "")
 	})
 
 	t.Run("reports a running daemon that needs authentication", func(t *testing.T) {
