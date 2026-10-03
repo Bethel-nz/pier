@@ -13,6 +13,7 @@ You own the infra: the binary, the config, the certificates, the URLs. Pier just
 - Go 1.25+ to build from source
 - Nothing else for `local:` names and LAN URLs — Pier serves those on your machine
 - For other exposure paths, install whatever that path needs. Pier skips a path that is not available and still brings up the rest
+- For Tailscale, Pier runs the `tailscale` command, so it must be on your `PATH`. On macOS, turn it on in Tailscale → Settings → CLI integration → Install Now. See [Tailscale CLI](https://tailscale.com/kb/1080/cli) for every platform
 
 ## Install
 

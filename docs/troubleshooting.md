@@ -50,7 +50,7 @@ After `pier up`, Pier's background process keeps checking every project that own
 
 Common blocks for optional device/public paths:
 
-- backend binary missing or daemon stopped
+- backend binary missing or daemon stopped. For Tailscale, Pier needs a `tailscale` command on your `PATH` that belongs to the Tailscale you run; [Tailscale CLI](https://tailscale.com/kb/1080/cli) shows how to turn it on per platform. `pier doctor` warns when the `tailscale` on your `PATH` is a different version from the running Tailscale, such as an old Homebrew CLI next to the app
 - signed-out or unauthorized client
 - public exposure used without that path's authorization
 

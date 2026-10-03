@@ -396,6 +396,22 @@ func TestDoctorReportsTailscaleDiagnostics(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsWhenTheCLIDoesNotMatchTailscale(t *testing.T) {
+	env := newEnv()
+	env.caps.CLIWarning = "the tailscale command on your PATH is version 1.92.5, but Tailscale runs 1.102.4"
+	result, err := env.service().Doctor(context.Background(), DoctorRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, warning := range result.Warnings {
+		found = found || warning == env.caps.CLIWarning
+	}
+	if !found {
+		t.Fatalf("Doctor() warnings = %q, want the CLI mismatch", result.Warnings)
+	}
+}
+
 func TestShareUnknownService(t *testing.T) {
 	env := newEnv()
 	svc := env.service()
