@@ -60,8 +60,8 @@ func TestApplyPartialFailure(t *testing.T) {
 	if result.Failed == nil || !reflect.DeepEqual(*result.Failed, update) {
 		t.Errorf("Apply() failed = %#v, want %#v", result.Failed, &update)
 	}
-	if !reflect.DeepEqual(result.Actual, actual) {
-		t.Errorf("Apply() actual = %#v, want re-read routes %#v", result.Actual, actual)
+	if !reflect.DeepEqual(result.Actual, actual) || !result.Observed {
+		t.Errorf("Apply() actual = %#v observed=%v, want re-read routes %#v", result.Actual, result.Observed, actual)
 	}
 	if result.Verified != nil {
 		t.Errorf("Apply() verified = %#v, want nil so unverified desired state is not saved", result.Verified)
@@ -198,11 +198,25 @@ func TestApplyVerificationFailed(t *testing.T) {
 	}
 }
 
+func TestApplyPartialFailureWithoutRereadIsNotObserved(t *testing.T) {
+	create := Operation{Kind: KindCreate, After: Route{HTTPSPort: 8443, Path: "/", Target: "http://127.0.0.1:3000"}}
+	driver := &fakeDriver{failAt: 1, applyErr: errors.New("serve failed"), routesErr: errors.New("daemon gone")}
+
+	result, err := Apply(context.Background(), Plan{Operations: []Operation{create}}, driver)
+	if err == nil {
+		t.Fatal("Apply() error = nil, want the apply failure")
+	}
+	if result.Observed || result.Actual != nil {
+		t.Errorf("Apply() observed=%v actual=%#v, want nothing observed when Routes fails", result.Observed, result.Actual)
+	}
+}
+
 type fakeDriver struct {
 	applyCalls  []Operation
 	applyErr    error
 	failAt      int
 	routes      []Route
+	routesErr   error
 	routesCalls int
 }
 
@@ -216,5 +230,8 @@ func (f *fakeDriver) Apply(_ context.Context, op Operation) error {
 
 func (f *fakeDriver) Routes(context.Context) ([]Route, error) {
 	f.routesCalls++
+	if f.routesErr != nil {
+		return nil, f.routesErr
+	}
 	return f.routes, nil
 }

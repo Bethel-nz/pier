@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -967,7 +968,11 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	}
 	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
 	if err != nil {
-		return &ApplyError{Err: err, Result: result}
+		applyErr := &ApplyError{Err: err, Result: result}
+		if persistErr := s.persistObserved(sess, result); persistErr != nil {
+			return errors.Join(applyErr, persistErr)
+		}
+		return applyErr
 	}
 	settings := state.LocalSettings{}
 	if keepDomains {
@@ -1008,6 +1013,76 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	}
 	sess.state = st
 	return s.syncLocal(ctx, sess, domains, hadWork)
+}
+
+// persistObserved records what a failed apply left behind, so a later pier
+// down can remove it. It claims only routes Tailscale shows exactly as planned,
+// and drops ownership only of deletions Tailscale confirms are gone.
+func (s *Service) persistObserved(sess *session, result reconcile.ApplyResult) error {
+	if !result.Observed {
+		return nil // nothing was re-read, so nothing is known to have changed
+	}
+	routes := nextOwned(sess.state.Routes, observedOps(result), s.clock())
+	if sameOwned(sess.state.Routes, routes) {
+		return nil
+	}
+	st := sess.state
+	st.Version = state.CurrentVersion
+	st.ProjectID = sess.project.ID
+	if sess.cfg.Name != "" {
+		st.Name = sess.cfg.Name
+	}
+	st.Path = sess.project.Root
+	st.DNSName = sess.dns
+	st.Routes = routes
+	st.UpdatedAt = s.clock()
+	if err := s.store.Save(st); err != nil {
+		return fmt.Errorf("Pier could not record the routes it changed before the failure; pier down may not remove them: %w", err)
+	}
+	sess.state = st
+	return nil
+}
+
+// observedOps keeps the completed operations whose effect shows in the routes
+// read back after a failure: creates and updates live with the planned target
+// and public value, and deletes whose route is gone.
+func observedOps(result reconcile.ApplyResult) []reconcile.Operation {
+	actual := make(map[string]reconcile.Route, len(result.Actual))
+	for _, route := range result.Actual {
+		actual[route.Key()] = route
+	}
+	var observed []reconcile.Operation
+	for _, op := range result.Completed {
+		switch op.Kind {
+		case reconcile.KindDelete:
+			if _, live := actual[op.Before.Key()]; !live {
+				observed = append(observed, op)
+			}
+		case reconcile.KindCreate, reconcile.KindUpdate:
+			got, live := actual[op.After.Key()]
+			if live && got.Target == op.After.Target && got.Public == op.After.Public {
+				observed = append(observed, op)
+			}
+		}
+	}
+	return observed
+}
+
+func sameOwned(left, right []state.Route) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	keys := make(map[string]state.Route, len(left))
+	for _, route := range left {
+		keys[ownedRoute(route).Key()] = route
+	}
+	for _, route := range right {
+		prev, ok := keys[ownedRoute(route).Key()]
+		if !ok || prev.Public != route.Public || prev.Service != route.Service {
+			return false
+		}
+	}
+	return true
 }
 
 // syncLocal hands saved domains, taps, and public windows to the daemon.

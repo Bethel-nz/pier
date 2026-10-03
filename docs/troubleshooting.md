@@ -4,6 +4,8 @@
 
 After a successful `pier up`, Pier records the routes it created or updated in `<user-config-dir>/pier/projects/<project-id>.json`. `pier down` deletes only those owned routes. Routes created by hand or by another tool are left alone.
 
+If `pier up` fails partway, Pier still records the routes it changed before the failure, as long as Tailscale shows them exactly as planned, so `pier down` can remove them. Routes it deleted before the failure stop being owned once Tailscale confirms they are gone.
+
 ## Conflicts
 
 If something already answers on the same route identity Pier would claim, and Pier does not own it, `pier plan` / `pier up` refuse with a conflict. The error shows current and desired values and suggests `pier up --force`.
