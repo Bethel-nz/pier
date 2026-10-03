@@ -205,8 +205,14 @@ func cliWarning(stderr string) string {
 	if match == nil {
 		return ""
 	}
+	client, server := match[1], match[2]
+	// Show the release numbers alone unless they are equal; then only the
+	// build suffix differs, and dropping it would hide the mismatch.
+	if short, shortServer := strings.SplitN(client, "-", 2)[0], strings.SplitN(server, "-", 2)[0]; short != shortServer {
+		client, server = short, shortServer
+	}
 	return fmt.Sprintf("the tailscale command on your PATH is version %s, but Tailscale runs %s. Use the CLI that came with Tailscale: %s",
-		strings.SplitN(match[1], "-", 2)[0], strings.SplitN(match[2], "-", 2)[0], CLIDocs)
+		client, server, CLIDocs)
 }
 
 func funnelUnauthorizedDiagnostic(stderr string) bool {

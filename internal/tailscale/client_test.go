@@ -115,6 +115,15 @@ func TestClientCheck(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps build suffixes when only they differ", func(t *testing.T) {
+		got := cliWarning(`Warning: client version "1.96.5" != tailscaled server version "1.96.5-t3caf7d9e7"`)
+
+		want := "the tailscale command on your PATH is version 1.96.5, but Tailscale runs 1.96.5-t3caf7d9e7. Use the CLI that came with Tailscale: " + CLIDocs
+		if got != want {
+			t.Errorf("cliWarning() = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("preserves a generic node status command failure", func(t *testing.T) {
 		runner := &fakeRunner{queued: []fakeResponse{
 			{out: []byte("1.88.2\n")},
