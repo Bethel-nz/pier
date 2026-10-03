@@ -1,4 +1,4 @@
-// Package app implements the shared Pier CLI/TUI use cases.
+// Package app implements the use cases behind each Pier command.
 package app
 
 import (
@@ -160,14 +160,7 @@ type UnshareResult struct {
 	Plan    reconcile.Plan
 }
 
-// OperationResult is a completed mutating action for the TUI.
-type OperationResult struct {
-	Command  string
-	Plan     reconcile.Plan
-	Services []ServiceInfo
-}
-
-// ServiceInfo is one configured service as presented to CLI and TUI.
+// ServiceInfo is one configured service as commands present it.
 type ServiceInfo struct {
 	Name      string
 	Target    string
@@ -375,7 +368,7 @@ type Tailscale interface {
 	Routes(ctx context.Context) ([]reconcile.Route, error)
 }
 
-// Service is the shared CLI/TUI facade.
+// Service is the facade every command calls.
 type Service struct {
 	find       func(string) (project.Context, error)
 	load       func(string) (config.Config, error)

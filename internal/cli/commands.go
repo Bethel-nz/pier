@@ -15,10 +15,10 @@ import (
 	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/localproxy"
 	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/prompt"
 	"github.com/Bethel-nz/pier/internal/render"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/tailscale"
-	"github.com/Bethel-nz/pier/internal/tui"
 )
 
 func (rt *runtime) renderer(command string) render.Options {
@@ -251,16 +251,16 @@ func newAddCommand(rt *runtime) *cobra.Command {
 		Short: "Add a service to pier.yaml",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			values := tui.AddServiceValues{Target: target, Path: path, Protocol: protocol, Public: public}
+			values := prompt.AddServiceValues{Target: target, Path: path, Protocol: protocol, Public: public}
 			if len(args) == 1 {
 				values.Name = args[0]
 			}
 			if values.Name == "" || values.Target == "" {
-				if !tui.StdioIsTTY() {
+				if !prompt.StdioIsTTY() {
 					return rt.renderer("service add").Error(fmt.Errorf("Pier service add requires a service name and --target"))
 				}
-				if err := tui.FillAddService(&values, existingNames(cmd.Context(), rt)); err != nil {
-					if errors.Is(err, tui.ErrFormAborted) {
+				if err := prompt.FillAddService(&values, existingNames(cmd.Context(), rt)); err != nil {
+					if errors.Is(err, prompt.ErrFormAborted) {
 						return nil
 					}
 					return rt.renderer("service add").Error(err)
@@ -318,36 +318,6 @@ func newOpenCommand(rt *runtime) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&local, "local", false, "open the .local URL instead of the Tailscale URL")
 	return cmd
-}
-
-func newTUICommand(rt *runtime) *cobra.Command {
-	return &cobra.Command{
-		Use:   "tui",
-		Short: "Open the interactive management interface",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTUI(cmd.Context(), rt)
-		},
-	}
-}
-
-func runTUI(ctx context.Context, rt *runtime) error {
-	svc, ok := rt.app.(*app.Service)
-	if !ok {
-		return fmt.Errorf("Pier TUI requires the application service")
-	}
-	proj, err := project.Find(rt.start())
-	if err != nil && !errors.Is(err, project.ErrNotFound) {
-		return err
-	}
-	store, err := state.Open()
-	if err != nil {
-		return err
-	}
-	if rt.local != nil {
-		// OS trust prompts would tear through the TUI; pier trust handles it instead.
-		rt.local.Interactive = false
-	}
-	return tui.Run(ctx, svc, store, proj, tui.Options{Start: rt.start(), NoColor: rt.noColor})
 }
 
 func newCopyCommand(rt *runtime) *cobra.Command {

@@ -10,7 +10,7 @@ pier.yaml
   -> reconciliation plan
   -> apply and verify
   -> persist ownership
-  -> render through CLI or TUI
+  -> render as text or JSON
 ```
 
 Local `.local` / LAN serving is Pier's own daemon. Other exposure paths are optional backends Pier drives when they are installed and available. Pier skips a path that is missing and still brings up the rest.
@@ -24,9 +24,9 @@ Local `.local` / LAN serving is Pier's own daemon. Other exposure paths are opti
 | `internal/state` | Atomic per-project ownership and runtime overrides |
 | `internal/reconcile` | Pure planner and ordered apply/verify for device/public routes |
 | `internal/health` | Bounded TCP probe of local targets |
-| `internal/app` | Shared use cases for CLI and TUI |
+| `internal/app` | Use cases behind each command |
 | `internal/cli`, `internal/render` | Cobra commands and text/JSON output |
-| `internal/tui` | Bubble Tea UI over `app.Service` |
+| `internal/prompt` | Huh form for `pier service add` in a terminal |
 | `internal/platform` | `open` / `copy` OS commands |
 | `internal/runner` | Optional `run:` / `watch:` process ownership |
 | `internal/certs`, `internal/trust` | Local CA, project certs, OS trust |

@@ -1,4 +1,5 @@
-package tui
+// Package prompt asks for missing command input in a terminal.
+package prompt
 
 import (
 	"errors"
@@ -10,6 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Bethel-nz/pier/internal/config"
+)
+
+var (
+	accentColor = lipgloss.Color("79")
+	goodColor   = lipgloss.Color("42")
+	mutedColor  = lipgloss.Color("245")
 )
 
 // ErrFormAborted is returned when the user cancels a Huh form.
@@ -131,6 +138,16 @@ func validateServiceName(existing []string) func(string) error {
 		}
 		return nil
 	}
+}
+
+// StdioIsTTY reports whether stdin and stdout are both terminals.
+func StdioIsTTY() bool {
+	statIn, errIn := os.Stdin.Stat()
+	statOut, errOut := os.Stdout.Stat()
+	if errIn != nil || errOut != nil {
+		return false
+	}
+	return statIn.Mode()&os.ModeCharDevice != 0 && statOut.Mode()&os.ModeCharDevice != 0
 }
 
 // FillAddService runs a standalone Huh form and writes the answers into values.
