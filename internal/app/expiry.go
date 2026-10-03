@@ -76,9 +76,10 @@ func untimedPublic(plan reconcile.Plan, cfg config.Project, overrides map[string
 }
 
 // needsDaemon reports whether Pier's background process has work for the
-// project besides its .local names: taps, or a public window to close.
+// project besides its .local names: taps, a public window to close, or
+// routes and a tunnel to keep checked.
 func needsDaemon(st state.ProjectState) bool {
-	return len(st.Taps) > 0 || st.OwnsTimedPublic() || st.Tunnel.Serving()
+	return len(st.Taps) > 0 || st.OwnsTimedPublic() || st.Tunnel.Serving() || len(st.Routes) > 0
 }
 
 func sameTimes(left, right map[string]time.Time) bool {

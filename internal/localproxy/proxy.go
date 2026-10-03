@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	hopHeader = "X-Pier-Hops"
-	maxHops   = 5
+	// ProbeHeader marks Pier's own background checks, which are not captured.
+	ProbeHeader = "X-Pier-Probe"
+	hopHeader   = "X-Pier-Hops"
+	maxHops     = 5
 )
 
 // Route sends one .local host, or one tap, to one loopback target.

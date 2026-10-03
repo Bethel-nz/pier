@@ -226,6 +226,8 @@ Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit wh
 
 Pier only removes routes this project recorded as owned. Unrelated routes on the machine stay untouched unless you pass `--force` to take over a conflicting path. Details: [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
+After `pier up`, a background process re-checks the project's routes every 30 seconds, puts back any it owns that went missing, and probes each URL end to end, so `pier status` says when a URL stops answering. See [Background checks](docs/troubleshooting.md#background-checks).
+
 ## Remove Pier routes
 
 ```bash

@@ -20,7 +20,7 @@ func captureTo(recorder Recorder, service string, tap bool, next http.Handler) h
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Upgrade") != "" {
+		if r.Header.Get("Upgrade") != "" || r.Header.Get(ProbeHeader) != "" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -49,7 +49,7 @@ func newLocaldCommand() *cobra.Command {
 			defer stop()
 			// No local names on this service: the daemon rereads saved state itself.
 			service := app.New(store, tailscale.ExecRunner{})
-			return localname.Run(ctx, store, localname.Hooks{Expire: service.Expire})
+			return localname.Run(ctx, store, localname.Hooks{Expire: service.Expire, Supervise: service.Supervise})
 		},
 	}
 }

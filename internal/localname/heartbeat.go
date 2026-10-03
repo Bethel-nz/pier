@@ -53,6 +53,8 @@ type Heartbeat struct {
 	Taps      []TapStatus  `json:"taps,omitempty"`
 	// Tunnels are the Cloudflare Tunnels the daemon runs cloudflared for.
 	Tunnels []TunnelStatus `json:"tunnels,omitempty"`
+	// Supervision is the last check of each project's routes and public URLs.
+	Supervision []Supervision `json:"supervision,omitempty"`
 	// LANAddress is this machine's address on its default network, for LAN URLs.
 	LANAddress string `json:"lanAddress,omitempty"`
 	// SetupURL is the setup page on pier.local, set while that name is live.

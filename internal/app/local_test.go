@@ -172,7 +172,7 @@ func TestStatusMarksNamesDownWhenTheDaemonIsNotRunning(t *testing.T) {
 	}
 }
 
-func TestProjectsWithoutDomainsNeverTouchTheDaemon(t *testing.T) {
+func TestTailscaleRoutesStartTheDaemonToWatchThem(t *testing.T) {
 	env := newEnv()
 	env.after = env.desiredRoutes()
 	local := &fakeLocal{}
@@ -181,8 +181,8 @@ func TestProjectsWithoutDomainsNeverTouchTheDaemon(t *testing.T) {
 	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
 		t.Fatal(err)
 	}
-	if len(local.syncs) != 0 {
-		t.Fatalf("Sync called %d times for a project with no domains", len(local.syncs))
+	if len(local.syncs) != 1 || len(local.syncs[0]) != 0 {
+		t.Fatalf("Sync calls = %v, want one with no names, so the daemon watches the routes", local.syncs)
 	}
 }
 

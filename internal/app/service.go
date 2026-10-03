@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -202,6 +203,13 @@ type ServiceInfo struct {
 	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
 	// pier status fills it; other commands just made the two agree.
 	Drift []string
+	// VerifiedAt is when Pier's background check last reached the service's
+	// URL end to end; VerifyError and FailingSince are set while it fails.
+	VerifiedAt   time.Time
+	VerifyError  string
+	FailingSince time.Time
+	// RepairedAt is when the background check last put the route back.
+	RepairedAt time.Time
 }
 
 // InvalidConfigError is aggregated configuration validation failure.
@@ -381,6 +389,8 @@ type Service struct {
 	addService func(path, name string, service config.Service) error
 	locals     LocalNames
 	tunnels    Tunnels
+	// fetch sends the background probes; nil is a real HTTP client.
+	fetch func(*http.Request) (*http.Response, error)
 }
 
 // LocalNames serves .local domains: certificates, trust, and the daemon.
@@ -510,10 +520,14 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 		withPublicUntil(result.Services, st.PublicUntil, st.Overrides, now)
 		result.Warnings = publicWarnings(actual, s.owners(), result.DNSName, now, nil)
 	}
-	if s.locals != nil && (hasDomains(loaded.cfg) || loaded.cfg.HasCloudflare()) {
+	if s.locals != nil && (hasDomains(loaded.cfg) || loaded.cfg.HasCloudflare() || len(st.Routes) > 0) {
 		result.Local = s.locals.Status()
 		withLocal(result.Services, result.Local)
 		withTunnel(result.Services, result.Local, loaded.project.ID)
+		if record, ok := result.Local.Supervision[loaded.project.ID]; ok && result.Local.Running {
+			withSupervision(result.Services, record)
+			result.Warnings = append(result.Warnings, supervisionNotes(record)...)
+		}
 	}
 	return result, nil
 }
