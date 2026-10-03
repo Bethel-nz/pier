@@ -33,6 +33,7 @@ Local `.local` / LAN serving is Pier's own daemon. Other exposure paths are opti
 | `internal/localname`, `internal/localproxy`, `internal/mdns` | `.local` names, HTTPS/HTTP proxy, mDNS, LAN ports, dashboard API |
 | `internal/capture`, `internal/replay` | Request capture store and replay |
 | `internal/tailscale` | Optional device/public backend adapter (CLI boundary, diagnostics, route JSON) |
+| `internal/cloudflare` | Optional public backend: `cloudflared` login, tunnel, DNS routes, and the config the daemon runs |
 
 Business logic does not live in Cobra handlers or Bubble Tea `View`. `pier plan` and `pier up` call the same reconcile path for routes Pier applies through a backend. Keep-only plans do not mutate anything.
 
