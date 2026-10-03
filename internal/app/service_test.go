@@ -377,7 +377,7 @@ func TestStatusReturnsStateLoadError(t *testing.T) {
 
 func TestDoctorReportsTailscaleDiagnostics(t *testing.T) {
 	env := newEnv()
-	env.checkErr = errors.New("Tailscale is not installed or is not available on PATH")
+	env.checkErr = errors.New("Tailscale is missing. Install it from https://tailscale.com/download. On macOS with the app installed, also link its CLI: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale")
 	env.caps = tailscale.Capabilities{Installed: false}
 	svc := env.service()
 

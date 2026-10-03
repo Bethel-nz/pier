@@ -59,7 +59,7 @@ func TestClientCheck(t *testing.T) {
 		if capabilities != (Capabilities{}) {
 			t.Errorf("Check() capabilities = %#v, want no available capabilities", capabilities)
 		}
-		assertCommandError(t, err, ErrorMissingExecutable, "Tailscale is not installed or is not available on PATH", "")
+		assertCommandError(t, err, ErrorMissingExecutable, "Tailscale is missing. Install it from https://tailscale.com/download. On macOS with the app installed, also link its CLI: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale", "")
 		assertCalls(t, runner.calls, call{name: "tailscale", args: []string{"version"}})
 	})
 
