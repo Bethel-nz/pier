@@ -13,6 +13,7 @@ import (
 	"github.com/Bethel-nz/pier/internal/health"
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/runner"
 )
 
 // Options control how command results are printed.
@@ -272,6 +273,10 @@ const healedShown = time.Hour
 // answering, or a route it put back recently.
 func writeChecks(w io.Writer, services []app.ServiceInfo, now time.Time) {
 	for _, service := range services {
+		writeProcess(w, service.Name, service.Process)
+		if service.Health.Status == health.StatusUnhealthy {
+			fmt.Fprintf(w, "unhealthy    %s: %s\n", service.Name, service.Health.Error)
+		}
 		if service.VerifyError != "" {
 			fmt.Fprintf(w, "failing      %s: failing since %s (%s)\n", service.Name, service.FailingSince.Local().Format("15:04"), service.VerifyError)
 		}
@@ -279,6 +284,29 @@ func writeChecks(w io.Writer, services []app.ServiceInfo, now time.Time) {
 			fmt.Fprintf(w, "healed       %s: its route went missing and Pier put it back %s ago\n", service.Name, app.Age(now.Sub(service.RepairedAt)))
 		}
 	}
+}
+
+// writeProcess says when a run: command is not simply running, with the last
+// line it printed, so its error doesn't scroll away.
+func writeProcess(w io.Writer, name string, process *runner.ProcessStatus) {
+	if process == nil {
+		return
+	}
+	var line string
+	switch process.State {
+	case runner.StateCrashed:
+		line = fmt.Sprintf("crashed      %s (%s)", name, process.Reason())
+	case runner.StateRestarting:
+		line = fmt.Sprintf("restarting   %s (%s, restart %d)", name, process.Reason(), process.Restarts+1)
+	case runner.StateExited:
+		line = fmt.Sprintf("exited       %s", name)
+	default:
+		return
+	}
+	if last := process.LastLine(); last != "" {
+		line += ": " + last
+	}
+	fmt.Fprintln(w, line)
 }
 
 func writeWarnings(w io.Writer, warnings []string) {
@@ -322,6 +350,10 @@ func (o Options) Doctor(result app.DoctorResult, err error) error {
 	if len(result.Health) > 0 {
 		fmt.Fprintln(o.Out, "Targets")
 		for _, item := range result.Health {
+			if item.Status == health.StatusUnhealthy {
+				fmt.Fprintf(o.Out, "  %s  %s: %s\n", item.Service, item.Status, item.Error)
+				continue
+			}
 			fmt.Fprintf(o.Out, "  %s  %s\n", item.Service, item.Status)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/Bethel-nz/pier/internal/health"
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/runner"
 )
 
 const schemaVersion = 1
@@ -118,6 +119,10 @@ type JSONService struct {
 	FailingSince *time.Time `json:"failingSince,omitempty"`
 	// RepairedAt is when the background check last put the route back.
 	RepairedAt *time.Time `json:"repairedAt,omitempty"`
+	// HealthError says why the service is unavailable or unhealthy.
+	HealthError string `json:"healthError,omitempty"`
+	// Process is the service's run: command, when pier up runs it.
+	Process *runner.ProcessStatus `json:"process,omitempty"`
 }
 
 // JSONMachineRoute is one Tailscale route on this machine, for status --all.
@@ -245,6 +250,10 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 		row.VerifiedAt = timeOrNil(service.VerifiedAt)
 		row.FailingSince = timeOrNil(service.FailingSince)
 		row.RepairedAt = timeOrNil(service.RepairedAt)
+		if service.Health.Status != health.StatusHealthy {
+			row.HealthError = service.Health.Error
+		}
+		row.Process = service.Process
 	}
 	return out
 }
@@ -263,7 +272,11 @@ func jsonDoctor(result app.DoctorResult) JSONDoctor {
 	}
 	for _, item := range result.Health {
 		if item.Status != health.StatusHealthy {
-			payload.Health = append(payload.Health, item.Service+": "+string(item.Status))
+			line := item.Service + ": " + string(item.Status)
+			if item.Status == health.StatusUnhealthy {
+				line += " (" + item.Error + ")"
+			}
+			payload.Health = append(payload.Health, line)
 		}
 	}
 	for _, item := range result.Validation {

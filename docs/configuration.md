@@ -48,6 +48,8 @@ services:
 | `services.<name>.dir` | Folder `run` starts in, relative to the project root |
 | `services.<name>.env` | Extra environment variables for `run` |
 | `services.<name>.watch` | Globs, relative to `dir`, whose changes restart `run` |
+| `services.<name>.restart` | `on-failure` (default) restarts `run` with backoff when it exits with an error; `never` leaves it down |
+| `services.<name>.health` | HTTP path, such as `/healthz`, that must answer 2xx or 3xx for the service to count as healthy. Without it, an open port is enough |
 | `services.<name>.throttle` | Slow the service to `slow-3g`, `3g`, `4g`, or `{latency, down, up}` |
 | `services.<name>.capture` | Keep the service's requests this long for `pier replay`, such as `2min`, `1hr`, `24h`, or `7d` |
 
@@ -67,7 +69,7 @@ HTTP, HTTPS, and TCP targets are supported. See [TCP services](#tcp-services).
 
 1. Pier starts each command through the shell (`sh -c`, or `cmd /c` on Windows) in `dir`, with `PORT` set to the target's port unless `env` sets it.
 2. It waits up to 60 seconds for every target to accept connections, then applies routes and prints the service table.
-3. Output streams under each service's name. A command that exits is reported and not restarted, so a crash never scrolls its own error away.
+3. Output streams under each service's name. A command that exits with an error is restarted after 1s, then 2s, 4s, and so on up to 30s. After 5 crashes within a minute Pier stops restarting it, and `pier status` shows `crashed (exit 1)` with the last line it printed, so the error doesn't scroll away. That stays in `pier status` until the next `pier up`. A command that exits cleanly is not restarted. `restart: never` turns restarts off.
 4. Ctrl-C stops every command and everything it started. Routes stay until `pier down`, and meanwhile `.local` names show Pier's "not responding" page.
 
 ```yaml
@@ -82,9 +84,23 @@ services:
     dir: web
 ```
 
-`watch` restarts the command when a matching file is added, changed, or removed. `**` spans any number of folders. `.git`, `node_modules`, and `.pier` are skipped unless a glob names them. Dev servers with their own hot reload (Vite, Next.js) don't need `watch`.
+`watch` restarts the command when a matching file is added, changed, or removed, including after it crashed. `**` spans any number of folders. `.git`, `node_modules`, and `.pier` are skipped unless a glob names them. Dev servers with their own hot reload (Vite, Next.js) don't need `watch`.
 
 A second `pier up` in the same project updates routes without starting the commands again.
+
+### Health
+
+By default a service is `healthy` when its port accepts connections. A dev server stuck on a compile error still does, so give it a `health` path:
+
+```yaml
+services:
+  api:
+    target: localhost:4000
+    run: bun dev
+    health: /healthz
+```
+
+Pier sends `GET /healthz` (2s timeout, redirects not followed). A 2xx or 3xx answer is `healthy`. Anything else is `unhealthy`, and `pier status` and `pier doctor` show the status code or error. `health` works on HTTP services only.
 
 ## Throttle and capture
 

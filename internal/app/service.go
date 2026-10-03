@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/Bethel-nz/pier/internal/platform"
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/runner"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/tailscale"
 )
@@ -211,6 +213,9 @@ type ServiceInfo struct {
 	FailingSince time.Time
 	// RepairedAt is when the background check last put the route back.
 	RepairedAt time.Time
+	// Process is the service's run: command as pier up last recorded it;
+	// nil when Pier does not run it or nothing is known.
+	Process *runner.ProcessStatus
 }
 
 // InvalidConfigError is aggregated configuration validation failure.
@@ -534,7 +539,24 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 			result.Warnings = append(result.Warnings, supervisionNotes(record)...)
 		}
 	}
+	withProcesses(result.Services, loaded.project.Root)
 	return result, nil
+}
+
+// withProcesses adds what pier up recorded about each service's run: command.
+func withProcesses(services []ServiceInfo, root string) {
+	report, err := runner.ReadReport(runner.StateFile(filepath.Join(root, ".pier")))
+	if err != nil {
+		return // a half-written or old file says nothing useful
+	}
+	for _, process := range report.Processes {
+		for i := range services {
+			if services[i].Name == process.Name {
+				process := process
+				services[i].Process = &process
+			}
+		}
+	}
 }
 
 // Doctor diagnoses config, Tailscale, and local targets as structured data.
@@ -1017,14 +1039,21 @@ func (s *Service) checkTargets(ctx context.Context, services []config.ResolvedSe
 	if check == nil {
 		check = health.Check
 	}
-	results := make([]health.Result, 0, len(services))
-	for _, service := range services {
-		result := check(ctx, service)
-		if result.Service == "" {
-			result.Service = service.Name
-		}
-		results = append(results, result)
+	// A health: path can take seconds; check every service at once.
+	results := make([]health.Result, len(services))
+	var wg sync.WaitGroup
+	for i, service := range services {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := check(ctx, service)
+			if result.Service == "" {
+				result.Service = service.Name
+			}
+			results[i] = result
+		}()
 	}
+	wg.Wait()
 	return results
 }
 

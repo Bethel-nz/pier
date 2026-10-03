@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // shellCommand runs line through cmd.exe in a new process group.
@@ -57,3 +59,17 @@ func Acquire(dir string) (*Lock, bool, error) {
 
 // Release lets another pier up run the project.
 func (l *Lock) Release() { _ = syscall.CloseHandle(l.handle) }
+
+// stillActive is the exit code Windows reports for a running process.
+const stillActive = 259
+
+// alive reports whether a process with this pid is still running.
+func alive(pid int) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(handle)
+	var code uint32
+	return windows.GetExitCodeProcess(handle, &code) == nil && code == stillActive
+}

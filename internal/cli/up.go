@@ -28,7 +28,8 @@ func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
 		result, upErr := rt.app.Up(ctx, req)
 		return rt.renderer("up").Up(result, upErr)
 	}
-	lock, owned, err := runner.Acquire(filepath.Join(plan.Project.Root, ".pier"))
+	runDir := filepath.Join(plan.Project.Root, ".pier")
+	lock, owned, err := runner.Acquire(runDir)
 	if err != nil {
 		return rt.renderer("up").Error(fmt.Errorf("Pier could not lock the project to run it: %w", err))
 	}
@@ -45,7 +46,7 @@ func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
 	if rt.json {
 		logs = rt.stderr // keep stdout valid JSON
 	}
-	supervisor := runner.Start(runCtx, plan.Processes, logs, rt.colorFor(logs))
+	supervisor := runner.Start(runCtx, plan.Processes, logs, runner.Options{Color: rt.colorFor(logs), StateFile: runner.StateFile(runDir)})
 	waitForTargets(runCtx, supervisor, plan.Targets)
 	if runCtx.Err() != nil {
 		supervisor.Wait()
@@ -64,7 +65,7 @@ func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
 }
 
 // waitForTargets returns once every target accepts connections, every
-// command has exited, ctx ends, or readyTimeout passes.
+// command has stopped for good, ctx ends, or readyTimeout passes.
 func waitForTargets(ctx context.Context, supervisor *runner.Supervisor, targets map[string]string) {
 	pending := make(map[string]string, len(targets))
 	for name, address := range targets {
@@ -83,7 +84,7 @@ func waitForTargets(ctx context.Context, supervisor *runner.Supervisor, targets 
 		if len(pending) == 0 {
 			return
 		}
-		if len(supervisor.Running()) == 0 && time.Since(started) > time.Second {
+		if len(supervisor.Active()) == 0 && time.Since(started) > time.Second {
 			return // nothing left that could start listening
 		}
 		if !announced && time.Since(started) > 2*time.Second {

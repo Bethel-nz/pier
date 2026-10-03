@@ -3,6 +3,8 @@ package health
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -98,5 +100,48 @@ func TestCheckHonorsContextCancellation(t *testing.T) {
 	}
 	if elapsed > 200*time.Millisecond {
 		t.Errorf("Check() took %v after cancel, want immediate return", elapsed)
+	}
+}
+
+func healthServer(t *testing.T, code int) config.ResolvedService {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(server.Close)
+	addr := server.Listener.Addr().(*net.TCPAddr)
+	return config.ResolvedService{Name: "api", Host: addr.IP.String(), Port: uint16(addr.Port), Protocol: config.ProtocolHTTP, Health: "/healthz"}
+}
+
+func TestCheckReportsUnhealthyWhenHealthPathFails(t *testing.T) {
+	result := Check(context.Background(), healthServer(t, http.StatusInternalServerError))
+
+	if result.Status != StatusUnhealthy || result.Code != 500 {
+		t.Fatalf("Check() = %+v, want unhealthy with code 500", result)
+	}
+	if result.Error != "GET /healthz returned 500" {
+		t.Errorf("Check() error = %q", result.Error)
+	}
+}
+
+func TestCheckAcceptsSuccessAndRedirectFromHealthPath(t *testing.T) {
+	for _, code := range []int{http.StatusOK, http.StatusNoContent, http.StatusFound} {
+		result := Check(context.Background(), healthServer(t, code))
+		if result.Status != StatusHealthy || result.Code != code {
+			t.Errorf("code %d: Check() = %+v, want healthy", code, result)
+		}
+	}
+}
+
+func TestCheckIgnoresHealthPathForTCPServices(t *testing.T) {
+	service := healthServer(t, http.StatusInternalServerError)
+	service.Protocol = config.ProtocolTCP
+
+	if result := Check(context.Background(), service); result.Status != StatusHealthy {
+		t.Fatalf("Check() = %+v, want healthy from the port alone", result)
 	}
 }
