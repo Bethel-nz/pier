@@ -119,7 +119,13 @@ Nothing else to install. On `pier up`, Pier:
 - asks the OS once to trust that CA (the macOS password dialog, a Windows confirmation, or `sudo` on Linux),
 - publishes the names through the system's mDNS responder (Pier's own on Linux) and starts a small background daemon that proxies HTTPS on port 443 to your service, which stays bound to loopback.
 
-The daemon answers with this machine's address on the asking device's own network, so a Wi-Fi change needs nothing from you. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. Other exposure paths for that service are unchanged.
+Which address a name points at depends on the platform:
+
+- **macOS.** Pier registers each name with mDNSResponder at this machine's address on every LAN interface, so a Mac on Ethernet and Wi-Fi at once is reachable from both networks. When an address changes, Pier registers the name again within a few seconds. An IPv6 lookup gets an immediate answer that the name has no IPv6 address, so devices that ask for both do not wait.
+- **Linux.** Pier's own responder answers with this machine's address on the asking device's network. When an address changes, it tells devices to drop the old one and announces the new one.
+- **Windows.** The Windows DNS client publishes one address: the one on the default route. A device on a second network should use the `lan` address instead.
+
+A Wi-Fi change needs nothing from you on any of them. `pier pause` withdraws one name, `pier down` withdraws the project's names, and the daemon exits once no project declares a local name. Other exposure paths for that service are unchanged.
 
 `.local` names need the network to pass multicast and each device to trust Pier's CA, and some networks and devices won't cooperate. So every local service also gets a plain-HTTP address on this machine's LAN IP, which `pier up` prints on a `lan` line, such as `http://192.168.1.162:4100/`. It needs nothing on the other device and works on any network that lets devices reach each other. The port stays the same across runs; the IP is whatever this machine has on its current network. `pier qr --lan` shows it as a QR code. It is plain HTTP, so browser features limited to secure pages (service workers, camera, clipboard) need the `.local` name or another HTTPS path instead.
 

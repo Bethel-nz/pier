@@ -10,15 +10,16 @@ import (
 type fakeBackend struct{ live map[string]*fakeHandle }
 
 type fakeHandle struct {
-	address string
+	address string // the primary address
+	addrs   []mdns.Address
 	dead    bool
 	stopped bool
 }
 
 func (b *fakeBackend) kind() string { return "fake" }
 
-func (b *fakeBackend) register(name, address string, _ int) (handle, error) {
-	h := &fakeHandle{address: address}
+func (b *fakeBackend) register(name string, addrs []mdns.Address, _ int) (handle, error) {
+	h := &fakeHandle{address: addrs[0].IP.String(), addrs: addrs}
 	b.live[name] = h
 	return h, nil
 }
@@ -29,9 +30,42 @@ func (h *fakeHandle) stop()        { h.stopped = true }
 
 func withAddress(t *testing.T, address *string) {
 	t.Helper()
-	previous := lanAddress
-	lanAddress = func() net.IP { return net.ParseIP(*address) }
-	t.Cleanup(func() { lanAddress = previous })
+	previous := lanAddresses
+	lanAddresses = func() []mdns.Address {
+		if *address == "" {
+			return nil
+		}
+		return []mdns.Address{{IP: net.ParseIP(*address), Interface: 4}}
+	}
+	t.Cleanup(func() { lanAddresses = previous })
+}
+
+func TestSystemNamesPublishesEveryLAN(t *testing.T) {
+	wifi := mdns.Address{IP: net.ParseIP("192.168.1.10"), Interface: 4}
+	ethernet := mdns.Address{IP: net.ParseIP("10.0.0.5"), Interface: 7}
+	addrs := []mdns.Address{wifi, ethernet}
+	previous := lanAddresses
+	lanAddresses = func() []mdns.Address { return addrs }
+	t.Cleanup(func() { lanAddresses = previous })
+	backend := &fakeBackend{live: map[string]*fakeHandle{}}
+	p := &systemNames{backend: backend, port: 443, names: map[string]*entry{}}
+
+	p.SetNames([]string{"myapp.local"})
+	first := backend.live["myapp.local"]
+	if first == nil || len(first.addrs) != 2 {
+		t.Fatalf("registered %+v, want both networks", first)
+	}
+
+	p.reconcile(nil)
+	if first.stopped {
+		t.Fatal("re-registered with nothing changed")
+	}
+
+	addrs = []mdns.Address{wifi, {IP: net.ParseIP("10.0.0.9"), Interface: 7}} // Ethernet renumbered
+	p.reconcile(nil)
+	if !first.stopped || backend.live["myapp.local"].addrs[1].IP.String() != "10.0.0.9" {
+		t.Fatal("a change on the second network did not replace the record")
+	}
 }
 
 func TestSystemNamesFollowsAddressAndNames(t *testing.T) {

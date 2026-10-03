@@ -30,7 +30,7 @@ Local `.local` / LAN serving is Pier's own daemon. Other exposure paths are opti
 | `internal/platform` | `open` / `copy` OS commands |
 | `internal/runner` | Optional `run:` / `watch:` process ownership |
 | `internal/certs`, `internal/trust` | Local CA, project certs, OS trust |
-| `internal/localname`, `internal/localproxy`, `internal/mdns` | `.local` names, HTTPS/HTTP proxy, mDNS, LAN ports, dashboard API |
+| `internal/localname`, `internal/localproxy`, `internal/mdns`, `internal/dnssd` | `.local` names, HTTPS/HTTP proxy, mDNS (Pier's own responder, or mDNSResponder's client socket on macOS), LAN ports, dashboard API |
 | `internal/capture`, `internal/replay` | Request capture store and replay |
 | `internal/tailscale` | Optional device/public backend adapter (CLI boundary, diagnostics, route JSON) |
 

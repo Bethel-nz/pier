@@ -3,6 +3,7 @@ package localname
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,10 +24,11 @@ type publisher interface {
 	SendError() error
 }
 
-// backend registers one name at one address with the system responder.
+// backend registers one name with the system responder, at this machine's
+// address on each LAN, the primary one first.
 type backend interface {
 	kind() string
-	register(name, address string, port int) (handle, error)
+	register(name string, addrs []mdns.Address, port int) (handle, error)
 }
 
 // handle is one live system registration.
@@ -36,8 +38,11 @@ type handle interface {
 	stop()
 }
 
-// lanAddress is the address names point at; tests replace it.
+// lanAddress is this machine's primary LAN address; tests replace it.
 var lanAddress = mdns.LANAddress
+
+// lanAddresses are the addresses names point at, one or more per LAN; tests replace it.
+var lanAddresses = mdns.LANAddresses
 
 // newPublisher prefers the system responder and falls back to Pier's own.
 func newPublisher(httpsPort int) (publisher, string, error) {
@@ -53,7 +58,7 @@ func newPublisher(httpsPort int) (publisher, string, error) {
 }
 
 // systemNames keeps one system registration per name, pointed at this
-// machine's current LAN address.
+// machine's current LAN addresses.
 type systemNames struct {
 	backend backend
 	port    int
@@ -65,11 +70,12 @@ type systemNames struct {
 }
 
 type entry struct {
-	handle  handle
+	handle handle
+	// address is the set of addresses the registration holds.
 	address string
 }
 
-// Serve re-registers every name when the LAN address changes, and redoes any
+// Serve re-registers every name when the LAN addresses change, and redoes any
 // registration that died, until ctx ends. Then it withdraws them all.
 func (p *systemNames) Serve(ctx context.Context) error {
 	tick := time.NewTicker(2 * time.Second)
@@ -99,10 +105,8 @@ func (p *systemNames) SetNames(names []string) {
 }
 
 func (p *systemNames) reconcile(names []string) {
-	address := ""
-	if ip := lanAddress(); ip != nil {
-		address = ip.String()
-	}
+	addrs := lanAddresses()
+	address := addressKey(addrs)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if names != nil {
@@ -126,17 +130,27 @@ func (p *systemNames) reconcile(names []string) {
 		if e.handle != nil && e.address == address && !e.handle.exited() {
 			continue
 		}
-		e.release() // the address changed or the registration died: never leave a stale record
+		e.release() // an address changed or the registration died: never leave a stale record
 		if address == "" {
 			continue // offline: publish nothing rather than a dead address
 		}
-		h, err := p.backend.register(name, address, p.port)
+		h, err := p.backend.register(name, addrs, p.port)
 		if err != nil {
 			p.lastErr, p.errAt = err, time.Now()
 			continue
 		}
 		e.handle, e.address = h, address
 	}
+}
+
+// addressKey identifies a set of addresses, so a change to any one of them,
+// or to the interface it is on, re-registers the name.
+func addressKey(addrs []mdns.Address) string {
+	key := ""
+	for _, addr := range addrs {
+		key += addr.IP.String() + "%" + strconv.Itoa(addr.Interface) + " "
+	}
+	return key
 }
 
 func (e *entry) release() {
