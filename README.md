@@ -4,7 +4,7 @@
 
 A proxy you own.
 
-Describe the local services in a project, run `pier up`, and get stable URLs — on your LAN, your devices, or the public internet. Pier runs on your machine, reads `pier.yaml`, and puts those services on the exposure path you chose. No SaaS tunnel owns the route. No third party sits in the middle of your traffic.
+Describe the local services in a project, run `pier up`, and get stable URLs — on your LAN, your devices, or the public internet. Pier runs on your machine, reads `pier.yaml`, and puts those services on the exposure path you chose. No SaaS tunnel owns the route. You choose who, if anyone, sits in the middle of your traffic, and Pier tells you which path does. See [Who sees your traffic](#who-sees-your-traffic).
 
 You own the infra: the binary, the config, the certificates, the URLs. Pier just reconciles what you declared and tells you the truth about what is live.
 
@@ -211,6 +211,19 @@ c copy       o open  r refresh  ? help   q quit
 ```
 
 Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit while a confirmation modal is open.
+
+## Who sees your traffic
+
+Each exposure path makes a different promise. Pick per service.
+
+| Path | Who can see the traffic |
+| --- | --- |
+| `local:` names and `lan` URLs | Nobody but you. It stays on your network, between your devices and this machine |
+| Tailscale Serve (tailnet) | Nobody but you. WireGuard encrypts it end to end between your devices |
+| Tailscale Funnel (`public: true`) | Tailscale relays it, but TLS ends on this machine, so the relay passes only encrypted bytes |
+| Cloudflare (`provider: cloudflare`) | **Cloudflare ends TLS at its edge and can read every request and response** |
+
+The config, the CA, the certificates, and the routes are yours on every path. `pier up` says so the first time a hostname goes out through Cloudflare.
 
 ## Public exposure
 

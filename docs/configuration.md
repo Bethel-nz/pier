@@ -212,7 +212,7 @@ On `pier up`, Pier:
 3. points each new hostname at the tunnel with a CNAME (`cloudflared tunnel route dns`),
 4. writes `.pier/cloudflared.yml` and has its background process run `cloudflared` with it, restarting it if it exits.
 
-The hostname is public on the internet. A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile.
+The hostname is public on the internet, and Cloudflare ends TLS at its edge, so Cloudflare can read the traffic; `pier up` notes this when it routes a new hostname. Use Tailscale when no third party should see it (see [Who sees your traffic](../README.md#who-sees-your-traffic)). A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile.
 
 A service with `provider: cloudflare` is served by Cloudflare only, never also on Tailscale. Tailscale settings on it, `public:` and `path:`, are errors, and `defaults.public` does not apply to it. `pier share` and `pier unshare` refuse it. Other services in the project stay on Tailscale, and Tailscale is not needed at all when every service uses Cloudflare.
 
