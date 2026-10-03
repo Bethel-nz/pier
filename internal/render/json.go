@@ -111,6 +111,13 @@ type JSONService struct {
 	PublicUntil *time.Time `json:"publicUntil,omitempty"`
 	// Drift lists where Tailscale differs from pier.yaml, each with its fix.
 	Drift []string `json:"drift,omitempty"`
+	// VerifiedAt is when the background check last reached the URL end to end.
+	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
+	// VerifyError and FailingSince are set while the URL fails.
+	VerifyError  string     `json:"verifyError,omitempty"`
+	FailingSince *time.Time `json:"failingSince,omitempty"`
+	// RepairedAt is when the background check last put the route back.
+	RepairedAt *time.Time `json:"repairedAt,omitempty"`
 }
 
 // JSONMachineRoute is one Tailscale route on this machine, for status --all.
@@ -233,6 +240,11 @@ func jsonServices(services []app.ServiceInfo) []JSONService {
 			since := service.PublicSince
 			out[len(out)-1].PublicSince = &since
 		}
+		row := &out[len(out)-1]
+		row.VerifyError = service.VerifyError
+		row.VerifiedAt = timeOrNil(service.VerifiedAt)
+		row.FailingSince = timeOrNil(service.FailingSince)
+		row.RepairedAt = timeOrNil(service.RepairedAt)
 	}
 	return out
 }
@@ -279,4 +291,11 @@ func displayTarget(service app.ServiceInfo) string {
 		return service.Host + ":" + strconv.FormatUint(uint64(service.Port), 10)
 	}
 	return service.Target
+}
+
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }

@@ -186,6 +186,7 @@ func (o Options) Status(result app.StatusResult, err error) error {
 	}
 	writeServiceTable(o.Out, result.Services)
 	writeDrift(o.Out, result.Services)
+	writeChecks(o.Out, result.Services, time.Now())
 	writeTailscaleSkipped(o.Out, result.TailscaleSkipped)
 	writeWarnings(o.Out, result.Warnings)
 	return nil
@@ -260,6 +261,22 @@ func writeDrift(w io.Writer, services []app.ServiceInfo) {
 	for _, service := range services {
 		for _, drift := range service.Drift {
 			fmt.Fprintf(w, "drift        %s: %s\n", service.Name, drift)
+		}
+	}
+}
+
+// healedShown is how long pier status mentions a route Pier put back.
+const healedShown = time.Hour
+
+// writeChecks prints what the background check found: a URL that stopped
+// answering, or a route it put back recently.
+func writeChecks(w io.Writer, services []app.ServiceInfo, now time.Time) {
+	for _, service := range services {
+		if service.VerifyError != "" {
+			fmt.Fprintf(w, "failing      %s: failing since %s (%s)\n", service.Name, service.FailingSince.Local().Format("15:04"), service.VerifyError)
+		}
+		if !service.RepairedAt.IsZero() && now.Sub(service.RepairedAt) < healedShown {
+			fmt.Fprintf(w, "healed       %s: its route went missing and Pier put it back %s ago\n", service.Name, app.Age(now.Sub(service.RepairedAt)))
 		}
 	}
 }

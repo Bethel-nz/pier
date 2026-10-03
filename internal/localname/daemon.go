@@ -34,6 +34,9 @@ const idleExit = 3 * time.Second
 type Hooks struct {
 	// Expire closes the project at root's public windows that have ended.
 	Expire func(ctx context.Context, root string) error
+	// Supervise puts back the project at root's missing or changed routes and
+	// probes its public URLs. The daemon calls it every 30 seconds.
+	Supervise func(ctx context.Context, root string) (SupervisePass, error)
 }
 
 // Run serves every saved .local name and tap, and closes public windows,
@@ -64,6 +67,8 @@ func Run(ctx context.Context, projects *state.Store, hooks Hooks) error {
 		tunnels:       map[string]*tunnelProcess{},
 		expire:        hooks.Expire,
 		expiring:      map[string]*expiry{},
+		supervise:     hooks.Supervise,
+		watches:       map[string]*watch{},
 		responderDone: closedChan(),
 		beat:          Heartbeat{PID: os.Getpid(), Build: buildID(), StartedAt: time.Now()},
 	}
@@ -115,6 +120,9 @@ type daemon struct {
 	lan      bool // the .local ports are open
 	expire   func(ctx context.Context, root string) error
 	expiring map[string]*expiry // by project ID
+	// supervise and watches keep each project's routes checked; see supervise.go.
+	supervise func(ctx context.Context, root string) (SupervisePass, error)
+	watches   map[string]*watch // by project ID
 	// responderDone closes once the name publisher has said goodbye.
 	responderDone chan struct{}
 	proxy         *localproxy.Proxy
@@ -354,6 +362,9 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 
 	tunnels := d.syncTunnels(saved, now)
+	supervision, superviseWarnings, watching := d.superviseAll(saved, now)
+	warnings = append(warnings, superviseWarnings...)
+	d.beat.Supervision = supervision
 
 	d.beat.Names = statuses
 	d.beat.Taps = taps
@@ -361,7 +372,7 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows || setupOnly
+	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows || setupOnly || watching
 }
 
 // setupName adds pier.local's certificate to served, once the LAN is open and

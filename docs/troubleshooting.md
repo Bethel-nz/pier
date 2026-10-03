@@ -35,6 +35,15 @@ Anything public is reachable by anyone on the internet, so Pier keeps it in view
 - `pier status --all` lists every route Pier can see on this machine, public ones first, with the Pier project that owns each one, or `-` for none.
 - `pier up`, `pier status`, and `pier doctor` warn about public routes no Pier project owns, and about public routes that have been up for more than 24 hours.
 
+## Background checks
+
+After `pier up`, Pier's background process keeps checking every project that owns Tailscale routes or serves a Cloudflare Tunnel, every 30 seconds:
+
+- If a route this project owns went missing or changed (Tailscale restarted, `tailscale serve reset` ran elsewhere, the node re-authenticated), Pier puts it back, through the same plan `pier up` uses. It never touches a route the project does not own and never deletes one. If `pier.yaml` changed since the last `pier up`, it leaves routes alone and says so: run `pier up` to apply the edit. A command changing the project's routes holds a lock until it has saved, so the check never puts back a route that `pier unshare`, `pier pause`, or `pier down` is removing. To take a route down for good, use those commands: one removed by hand with `tailscale serve ... off` comes back, because the project still owns it.
+- It sends a `HEAD` request to each Serve, Funnel, and Cloudflare URL, end to end. A missing answer or a 5xx counts as failing; any other status means the path works. These requests carry an `X-Pier-Probe` token that only the running daemon knows, so they are never captured, and the proxy removes it before the request reaches your app. A visitor sending the header is captured as usual.
+
+`pier status` shows `failing  web: failing since 14:02 (answered 502 Bad Gateway)` and `healed  web: ... put it back 2m ago`, and `pier status --json` has `verifiedAt`, `verifyError`, `failingSince`, and `repairedAt` per service. When Tailscale is down, the check waits longer each time, up to 5 minutes, and `pier status` shows one warning instead of retrying every second.
+
 ## Doctor
 
 `pier doctor` reports config health, whether optional exposure backends are available, local CA / daemon state, and whether local targets answer on TCP. Failures are diagnostic data. `--verbose` adds raw backend diagnostics. It also warns about public routes (above), and when the `pier` on your PATH is a different binary from the one running — the usual reason a `go install`ed fix seems to change nothing.

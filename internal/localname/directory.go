@@ -42,6 +42,8 @@ type Report struct {
 	LANAddress string
 	// SetupURL is where any device opens Pier's setup page, while pier.local is live.
 	SetupURL string
+	// Supervision is the daemon's last check of each project's routes, by project ID.
+	Supervision map[string]Supervision
 	// Tunnels are the running Cloudflare Tunnels, by project ID.
 	Tunnels  map[string]TunnelStatus
 	Warnings []string
@@ -407,6 +409,10 @@ func (d *Directory) fill(report *Report, beat Heartbeat, running bool) {
 	}
 	for _, status := range beat.Names {
 		report.Names[status.Name] = status
+	}
+	report.Supervision = map[string]Supervision{}
+	for _, record := range beat.Supervision {
+		report.Supervision[record.Project] = record
 	}
 	report.Tunnels = map[string]TunnelStatus{}
 	for _, tunnel := range beat.Tunnels {

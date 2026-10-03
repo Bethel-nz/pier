@@ -2,6 +2,9 @@ package localproxy
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"io"
 	"net"
 	"net/http"
@@ -20,7 +23,7 @@ func captureTo(recorder Recorder, service string, tap bool, next http.Handler) h
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Upgrade") != "" {
+		if r.Header.Get("Upgrade") != "" || isProbe(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -110,3 +113,22 @@ func (w *captureWriter) Write(b []byte) (int, error) {
 }
 
 func (w *captureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// probeToken marks this process's own background checks. It is random for
+// each process, and the probes run in the same process as this proxy, so a
+// visitor cannot send it to keep a request out of the capture.
+var probeToken = func() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b[:])
+}()
+
+// ProbeToken is the ProbeHeader value Pier's background checks send.
+func ProbeToken() string { return probeToken }
+
+func isProbe(r *http.Request) bool {
+	got := r.Header.Get(ProbeHeader)
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(probeToken)) == 1
+}
