@@ -71,6 +71,13 @@ func (e *CommandError) VerboseDetails() string {
 	return e.stderr
 }
 
+// ErrFunnelUnauthorized is returned by callers that need Funnel for a public
+// route when Check reported Capabilities.Funnel as false.
+var ErrFunnelUnauthorized = &CommandError{
+	Kind:    ErrorFunnelUnauthorized,
+	summary: "Tailscale Funnel is not authorized for this device",
+}
+
 // Client reads Tailscale state through a Runner.
 type Client struct {
 	runner Runner
@@ -84,7 +91,8 @@ func NewClient(runner Runner) *Client {
 	return &Client{runner: runner}
 }
 
-// Check performs read-only Tailscale prerequisite checks.
+// Check performs read-only Tailscale prerequisite checks. A device without
+// Funnel is still healthy: Check reports Capabilities.Funnel as false and no error.
 func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	var capabilities Capabilities
 
@@ -132,6 +140,8 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 	capabilities.HTTPS = status.HTTPS
 	capabilities.Funnel = status.Funnel
 
+	// Funnel is a feature, not a prerequisite: private routes need only Serve.
+	// Report it as a capability and let the caller decide whether it is needed.
 	name, args = funnelStatusCommand()
 	_, stderr, err = c.runner.Run(ctx, name, args...)
 	if err != nil {
@@ -140,20 +150,6 @@ func (c *Client) Check(ctx context.Context) (Capabilities, error) {
 			return capabilities, commandErr
 		}
 		capabilities.Funnel = false
-		return capabilities, &CommandError{
-			Kind:    ErrorFunnelUnauthorized,
-			summary: "Tailscale Funnel is not authorized for this device",
-			stderr:  commandErr.stderr,
-			cause:   commandErr.cause,
-		}
-	}
-	if !capabilities.Funnel {
-		return capabilities, &CommandError{
-			Kind:    ErrorFunnelUnauthorized,
-			summary: "Tailscale Funnel is not authorized for this device",
-			stderr:  string(stderr),
-			cause:   err,
-		}
 	}
 
 	return capabilities, nil
