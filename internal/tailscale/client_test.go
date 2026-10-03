@@ -158,7 +158,7 @@ func TestClientCheck(t *testing.T) {
 		)
 	})
 
-	t.Run("reports when Funnel authorization is required", func(t *testing.T) {
+	t.Run("reports missing Funnel authorization as a capability, not an error", func(t *testing.T) {
 		statusWithoutFunnel := []byte(`{
 			"BackendState": "Running",
 			"HaveNodeKey": true,
@@ -178,12 +178,38 @@ func TestClientCheck(t *testing.T) {
 		if capabilities != want {
 			t.Errorf("Check() capabilities = %#v, want %#v", capabilities, want)
 		}
-		assertCommandError(t, err, ErrorFunnelUnauthorized, "Tailscale Funnel is not authorized for this device", "Funnel is not enabled on this tailnet\n")
+		if err != nil {
+			t.Fatalf("Check() error = %v, want a healthy check without Funnel", err)
+		}
 		assertCalls(t, runner.calls,
 			call{name: "tailscale", args: []string{"version"}},
 			call{name: "tailscale", args: []string{"status", "--json"}},
 			call{name: "tailscale", args: []string{"funnel", "status", "--json"}},
 		)
+	})
+
+	t.Run("is healthy when the node lacks the Funnel capability", func(t *testing.T) {
+		statusWithoutFunnel := []byte(`{
+			"BackendState": "Running",
+			"HaveNodeKey": true,
+			"Self": {"CapMap": {"https": null}},
+			"CurrentTailnet": {"MagicDNSEnabled": true}
+		}`)
+		runner := &fakeRunner{queued: []fakeResponse{
+			{out: []byte("1.88.2\n")},
+			{out: statusWithoutFunnel},
+			{out: []byte("{}\n")},
+		}}
+
+		capabilities, err := NewClient(runner).Check(context.Background())
+
+		if err != nil {
+			t.Fatalf("Check() error = %v, want nil", err)
+		}
+		want := Capabilities{Installed: true, DaemonRunning: true, Authenticated: true, MagicDNS: true, HTTPS: true}
+		if capabilities != want {
+			t.Errorf("Check() capabilities = %#v, want %#v", capabilities, want)
+		}
 	})
 
 	t.Run("preserves a generic Funnel status command failure", func(t *testing.T) {

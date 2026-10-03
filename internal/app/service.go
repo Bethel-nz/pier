@@ -440,7 +440,11 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 	if err != nil {
 		return result, err
 	}
-	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused, taps), ownedRoutes(sess.project, sess.state), req.Force)
+	desired := desiredRoutes(sess.project, sess.cfg, sess.state.Overrides, sess.state.Paused, taps)
+	if err := requireFunnel(&sess, desired); err != nil {
+		return result, err
+	}
+	sess.plan = s.plannerFor(&sess, desired, ownedRoutes(sess.project, sess.state), req.Force)
 	result.Plan = sess.plan
 	result.TailscaleSkipped = sess.tailscaleSkipped
 	return result, s.reviewPlan(sess.plan, req.Force)
@@ -535,6 +539,9 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 		if actual, err := s.ts.Routes(ctx); err == nil {
 			result.Warnings = publicWarnings(actual, s.owners(), s.lookupDNS(ctx, ""), s.clock(), nil)
 		}
+		if !caps.Funnel && loadErr == nil {
+			result.Warnings = append(result.Warnings, s.funnelWarning(loaded)...)
+		}
 	}
 	if mismatch := pathMismatch(); mismatch != "" {
 		result.Warnings = append(result.Warnings, mismatch)
@@ -547,6 +554,27 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 		result.Warnings = append(result.Warnings, s.cloudflareWarnings(loaded.project.ID)...)
 	}
 	return result, loadErr
+}
+
+// funnelWarning names the public services that cannot go public on a device
+// without Funnel. Private services are unaffected, so it is only a warning.
+func (s *Service) funnelWarning(loaded loadedProject) []string {
+	var overrides map[string]bool
+	if loaded.project.ID != "" {
+		if st, err := s.store.Load(loaded.project.ID); err == nil {
+			overrides = st.Overrides
+		}
+	}
+	var public []string
+	for _, service := range effectiveServices(loaded.cfg, overrides) {
+		if service.Public && service.OnTailscale() {
+			public = append(public, service.Name)
+		}
+	}
+	if len(public) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("Tailscale Funnel is not authorized for this device, so pier up cannot make %s public; enable Funnel for this device in the Tailscale admin console, or make it private", strings.Join(public, ", "))}
 }
 
 // Share exposes a service through Funnel using the normal reconcile path.
@@ -761,7 +789,11 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict, re
 	if sess.taps, err = assignTaps(sess.cfg, sess.state.Taps, paused); err != nil {
 		return result, err
 	}
-	sess.plan = s.plannerFor(&sess, desiredRoutes(sess.project, sess.cfg, overrides, paused, sess.taps), ownedRoutes(sess.project, sess.state), force)
+	desired := desiredRoutes(sess.project, sess.cfg, overrides, paused, sess.taps)
+	if err := requireFunnel(&sess, desired); err != nil {
+		return result, err
+	}
+	sess.plan = s.plannerFor(&sess, desired, ownedRoutes(sess.project, sess.state), force)
 	result.Plan = sess.plan
 	result.TailscaleSkipped = sess.tailscaleSkipped
 	if err := s.reviewPlan(sess.plan, force); err != nil {
@@ -810,6 +842,8 @@ type session struct {
 	dns     string
 	plan    reconcile.Plan
 	local   localname.Report
+	// caps is what this device's Tailscale supports, when it is usable.
+	caps tailscale.Capabilities
 	// taps are the services Pier throttles or captures after this change.
 	taps []state.Tap
 	// until is when each timed public window closes after this change.
@@ -819,6 +853,31 @@ type session struct {
 	// tailscaleSkipped says why Tailscale was left alone, when it is unavailable
 	// and the project still has local names to serve.
 	tailscaleSkipped string
+}
+
+// requireFunnel stops a plan that would make a route public on a device
+// without Funnel; private routes need only Serve. A project that also serves
+// local names or Cloudflare leaves Tailscale alone instead, as when Tailscale
+// is down.
+func requireFunnel(sess *session, desired []reconcile.Route) error {
+	if sess.tailscaleSkipped != "" || sess.caps.Funnel || !anyPublic(desired) {
+		return nil
+	}
+	err := &PrerequisiteError{Err: tailscale.ErrFunnelUnauthorized}
+	if !hasDomains(sess.cfg) && !sess.cfg.HasCloudflare() {
+		return err
+	}
+	sess.tailscaleSkipped = err.Error()
+	return nil
+}
+
+func anyPublic(routes []reconcile.Route) bool {
+	for _, route := range routes {
+		if route.Public {
+			return true
+		}
+	}
+	return false
 }
 
 // plannerFor builds the Tailscale plan, or an empty one when Tailscale is skipped.
@@ -866,7 +925,8 @@ func (s *Service) prepare(ctx context.Context, start string) (session, error) {
 	if err != nil {
 		return sess, err
 	}
-	if _, err := s.ts.Check(ctx); err != nil {
+	caps, err := s.ts.Check(ctx)
+	if err != nil {
 		// Local names and Cloudflare do not need Tailscale: serve them and report Tailscale as skipped.
 		if !hasDomains(loaded.cfg) && !loaded.cfg.HasCloudflare() {
 			return sess, &PrerequisiteError{Err: err}
@@ -884,6 +944,7 @@ func (s *Service) prepare(ctx context.Context, start string) (session, error) {
 		return sess, fmt.Errorf("Pier could not read Tailscale routes: %w", err)
 	}
 	sess.actual = actual
+	sess.caps = caps
 	sess.dns = strings.TrimRight(s.ts.DNSName(), ".")
 	if sess.dns == "" {
 		if st, err := s.ts.Status(ctx); err == nil {
