@@ -174,7 +174,7 @@ func TestDownKeepsTheTunnelButServesNothing(t *testing.T) {
 
 func TestUpWithCloudflareNeedsNoTailscale(t *testing.T) {
 	env, tunnels, local := cloudflareEnv(t)
-	env.checkErr = errors.New("Tailscale is not installed or is not available on PATH")
+	env.checkErr = errors.New("Tailscale is missing. Install it from https://tailscale.com/download. On macOS with the app installed, also link its CLI: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale")
 	tunnels.loggedIn = true
 	result, err := env.cloudflareService(tunnels, local).Up(context.Background(), UpRequest{Start: env.project.Root})
 	if err != nil {

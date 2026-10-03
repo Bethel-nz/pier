@@ -249,10 +249,12 @@ func classifyRunError(ctx context.Context, err error, stderr []byte, summary str
 	var executableErr *exec.Error
 	if errors.As(err, &executableErr) {
 		return &CommandError{
-			Kind:    ErrorMissingExecutable,
-			summary: "Tailscale is not installed or is not available on PATH",
-			stderr:  string(stderr),
-			cause:   err,
+			Kind: ErrorMissingExecutable,
+			summary: "Tailscale is missing. Install it from https://tailscale.com/download. " +
+				"On macOS with the app installed, also link its CLI: " +
+				"sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale",
+			stderr: string(stderr),
+			cause:  err,
 		}
 	}
 	return &CommandError{
