@@ -14,6 +14,7 @@ import (
 	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/localproxy"
 	"github.com/Bethel-nz/pier/internal/reconcile"
+	"github.com/Bethel-nz/pier/internal/state"
 )
 
 // supervisedEnv is a project that owns all three routes, with web's route
@@ -124,7 +125,7 @@ func TestProbeCountsOnlyMissingAnswersAnd5xxAsFailing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		svc.fetch = func(req *http.Request) (*http.Response, error) {
-			if req.Method != http.MethodHead || req.Header.Get(localproxy.ProbeHeader) == "" {
+			if req.Method != http.MethodHead || req.Header.Get(localproxy.ProbeHeader) != localproxy.ProbeToken() {
 				t.Fatalf("probe sent %s without %s", req.Method, localproxy.ProbeHeader)
 			}
 			if tc.err != nil {
@@ -171,5 +172,38 @@ func TestStatusShowsBackgroundChecks(t *testing.T) {
 	}
 	if web := byName["web"]; web.RepairedAt.IsZero() {
 		t.Errorf("web = %+v, want its repair time", web)
+	}
+}
+
+// lockingEnv is a store with the project change lock.
+type lockingEnv struct {
+	*fakeEnv
+	store *state.Store
+}
+
+func (l lockingEnv) Lock(id string) (func(), error)          { return l.store.Lock(id) }
+func (l lockingEnv) TryLock(id string) (func(), bool, error) { return l.store.TryLock(id) }
+
+func TestSuperviseWaitsWhileACommandChangesRoutes(t *testing.T) {
+	env, _ := supervisedEnv()
+	locks := state.New(t.TempDir())
+	svc := env.service()
+	svc.store = lockingEnv{fakeEnv: env, store: locks}
+	svc.fetch = okFetch
+
+	// pier unshare is between removing the public route and saving state.
+	unlock, err := locks.Lock(env.project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass, err := svc.Supervise(context.Background(), env.project.Root)
+	unlock()
+	if err != nil || !pass.Busy || env.mutated {
+		t.Fatalf("Supervise() = %+v, %v, mutated=%v; want it to wait, changing nothing", pass, err, env.mutated)
+	}
+
+	pass, err = svc.Supervise(context.Background(), env.project.Root)
+	if err != nil || pass.Busy || len(pass.Repaired) != 1 {
+		t.Fatalf("Supervise() after unlock = %+v, %v; want the repair", pass, err)
 	}
 }

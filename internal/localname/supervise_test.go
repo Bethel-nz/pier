@@ -100,3 +100,12 @@ func TestSuperviseAllChecksEachProjectOnSchedule(t *testing.T) {
 		t.Fatal("nothing to watch should let the daemon exit")
 	}
 }
+
+func TestBusyPassKeepsTheRecordAndRetriesSoon(t *testing.T) {
+	now := time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC)
+	record := Supervision{Probes: []Probe{{URL: "https://host.ts.net/", LastSuccess: now}}}
+	failures := record.merge(SupervisePass{Busy: true}, nil, now, 2)
+	if failures != 2 || len(record.Probes) != 1 || record.NextCheck.Sub(now) != busyRetry {
+		t.Fatalf("record = %+v failures=%d, want it kept and a retry in %v", record, failures, busyRetry)
+	}
+}

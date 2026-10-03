@@ -27,6 +27,18 @@ func (s *Service) Supervise(ctx context.Context, start string) (localname.Superv
 	if err != nil {
 		return pass, err
 	}
+	// A command changing this project's routes holds the lock from apply to
+	// save. Wait for the next check rather than act on half-changed routes,
+	// and read state only once the lock is held.
+	unlock, ok, err := s.tryLockProject(loaded.project.ID)
+	if err != nil {
+		return pass, err
+	}
+	if !ok {
+		pass.Busy = true
+		return pass, nil
+	}
+	defer unlock()
 	st, err := s.store.Load(loaded.project.ID)
 	if err != nil {
 		return pass, fmt.Errorf("Pier could not load project state: %w", err)
@@ -125,7 +137,7 @@ func (s *Service) probe(ctx context.Context, service, url string) localname.Prob
 		return result
 	}
 	req.Header.Set("User-Agent", "pier-probe")
-	req.Header.Set(localproxy.ProbeHeader, "1")
+	req.Header.Set(localproxy.ProbeHeader, localproxy.ProbeToken())
 	start := s.clock()
 	resp, err := do(req)
 	result.LatencyMS = s.clock().Sub(start).Milliseconds()
@@ -151,6 +163,37 @@ func probeError(err error) string {
 		return "no answer within 10s"
 	}
 	return err.Error()
+}
+
+type projectLocker interface {
+	Lock(projectID string) (func(), error)
+	TryLock(projectID string) (func(), bool, error)
+}
+
+// lockProject holds the project's change lock, when the store has one.
+func (s *Service) lockProject(projectID string) (func(), error) {
+	locker, ok := s.store.(projectLocker)
+	if !ok {
+		return func() {}, nil
+	}
+	unlock, err := locker.Lock(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("Pier could not lock project state: %w", err)
+	}
+	return unlock, nil
+}
+
+// tryLockProject is lockProject without waiting; ok is false while busy.
+func (s *Service) tryLockProject(projectID string) (func(), bool, error) {
+	locker, ok := s.store.(projectLocker)
+	if !ok {
+		return func() {}, true, nil
+	}
+	unlock, ok, err := locker.TryLock(projectID)
+	if err != nil {
+		return nil, false, fmt.Errorf("Pier could not lock project state: %w", err)
+	}
+	return unlock, ok, nil
 }
 
 // withSupervision adds the background check's last result to each service.

@@ -16,6 +16,8 @@ const (
 	superviseMaxBackoff = 5 * time.Minute
 	// superviseTimeout bounds one check, probes included.
 	superviseTimeout = 25 * time.Second
+	// busyRetry is how soon to check again after a command held the project.
+	busyRetry = 5 * time.Second
 )
 
 // SupervisePass is one look at a project's exposure paths, from the
@@ -27,6 +29,9 @@ type SupervisePass struct {
 	// Note says why routes were not repaired, such as pier.yaml having
 	// changed since pier up. It is not an error and does not back off.
 	Note string
+	// Busy is set when a command was changing the project's routes, so
+	// nothing was checked; the daemon tries again in a few seconds.
+	Busy bool
 }
 
 // Probe is one request to a URL Pier made public or tailnet-reachable.
@@ -140,6 +145,10 @@ func (d *daemon) check(w *watch, root string) {
 // returns the new failure count. A failing check backs off, doubling up to
 // superviseMaxBackoff, so a stopped Tailscale is asked rarely, not hammered.
 func (s *Supervision) merge(pass SupervisePass, err error, now time.Time, failures int) int {
+	if pass.Busy && err == nil {
+		s.NextCheck = now.Add(busyRetry)
+		return failures
+	}
 	s.CheckedAt = now
 	s.Note = pass.Note
 	if err != nil {

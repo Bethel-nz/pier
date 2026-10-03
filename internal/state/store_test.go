@@ -279,3 +279,28 @@ func TestListSkipsUnrelatedFiles(t *testing.T) {
 		t.Fatalf("List() = %#v, want only saved project", got)
 	}
 }
+
+func TestTryLockFailsWhileLockIsHeld(t *testing.T) {
+	store := New(t.TempDir())
+	unlock, err := store.Lock("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.TryLock("p1"); ok || err != nil {
+		t.Fatalf("TryLock while held = %v, %v; want busy", ok, err)
+	}
+	if release, ok, err := store.TryLock("p2"); !ok || err != nil {
+		t.Fatalf("TryLock of another project = %v, %v; want it free", ok, err)
+	} else {
+		release()
+	}
+	unlock()
+	release, ok, err := store.TryLock("p1")
+	if !ok || err != nil {
+		t.Fatalf("TryLock after unlock = %v, %v; want it free", ok, err)
+	}
+	release()
+	if projects, err := store.List(); err != nil || len(projects) != 0 {
+		t.Fatalf("List() = %v, %v; lock files must not look like projects", projects, err)
+	}
+}

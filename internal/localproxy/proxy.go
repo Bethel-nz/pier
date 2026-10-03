@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	// ProbeHeader marks Pier's own background checks, which are not captured.
+	// ProbeHeader marks Pier's own background checks, which are not
+	// captured. Only a value equal to ProbeToken counts.
 	ProbeHeader = "X-Pier-Probe"
 	hopHeader   = "X-Pier-Hops"
 	maxHops     = 5
@@ -258,6 +259,7 @@ func (p *Proxy) reverseProxy(rt *route) *httputil.ReverseProxy {
 				pr.Out.Header.Set("X-Forwarded-Port", port)
 			}
 			pr.Out.Header.Set(hopHeader, strconv.Itoa(hops+1))
+			pr.Out.Header.Del(ProbeHeader) // the token stays between Pier's probe and its proxy
 			translateOrigin(pr, rt.target)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

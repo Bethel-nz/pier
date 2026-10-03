@@ -67,6 +67,38 @@ func TestTapCapturesAndKeepsForwardedHeaders(t *testing.T) {
 	}
 }
 
+func TestOnlyPiersOwnProbesSkipCapture(t *testing.T) {
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get(ProbeHeader))
+	}))
+	defer upstream.Close()
+	recorder := &memoryRecorder{}
+	tap, err := New().Tap(Route{Target: upstream.URL, Service: "hooks", Capture: recorder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(token string) {
+		req := httptest.NewRequest(http.MethodHead, "http://host.ts.net/hooks", nil)
+		req.Header.Set(ProbeHeader, token)
+		tap.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	send(ProbeToken())
+	if len(recorder.exchanges) != 0 {
+		t.Fatal("Pier's own probe was captured")
+	}
+	send("1") // anyone can send the header; only the token counts
+	if len(recorder.exchanges) != 1 {
+		t.Fatalf("captured %d exchanges, want a forged probe header captured", len(recorder.exchanges))
+	}
+	for _, header := range seen {
+		if header != "" {
+			t.Fatalf("the app saw %s: %q, want it removed", ProbeHeader, header)
+		}
+	}
+}
+
 func TestThrottleAddsLatencyAndPacesBodies(t *testing.T) {
 	payload := strings.Repeat("x", 20_000)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

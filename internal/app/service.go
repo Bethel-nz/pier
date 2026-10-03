@@ -979,6 +979,13 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 	if err := s.rejectDomainConflicts(sess.project.ID, domains); err != nil {
 		return err
 	}
+	// Held until state is saved, so the background check never sees the
+	// routes halfway through this change and puts back what it removed.
+	unlock, err := s.lockProject(sess.project.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	result, err := reconcile.Apply(ctx, sess.plan, s.ts)
 	if err != nil {
 		return &ApplyError{Err: err, Result: result}
