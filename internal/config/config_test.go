@@ -53,6 +53,17 @@ func TestValidateDomain(t *testing.T) {
 	}
 }
 
+func TestValidateReservesPierLocal(t *testing.T) {
+	project := Project{Version: 1, Name: "demo", Services: []ResolvedService{{
+		Name: "web", Target: "http://127.0.0.1:3000", Host: "127.0.0.1", Port: 3000,
+		Path: "/", Protocol: ProtocolHTTP, Domain: SetupDomain,
+	}}}
+	errors := Validate(project)
+	if len(errors) != 1 || errors[0].Field != "local" || !strings.Contains(errors[0].Message, "reserved") {
+		t.Fatalf("Validate() = %#v, want pier.local refused as reserved", errors)
+	}
+}
+
 func TestNormalizeDefaults(t *testing.T) {
 	tests := []struct {
 		name  string

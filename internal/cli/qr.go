@@ -7,25 +7,32 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/localproxy"
 	"github.com/Bethel-nz/pier/internal/render"
 )
 
 func newQRCommand(rt *runtime) *cobra.Command {
-	var ca, tailnet, lan bool
+	var ca, tailnet, lan, setup bool
 	cmd := &cobra.Command{
 		Use:   "qr [service]",
 		Short: "Show a service's URL as a QR code to open it on a phone",
 		Long: "Show a service's .local URL as a QR code. With one local service, the name is optional.\n" +
 			"--lan shows the plain-HTTP address on this machine's IP, which works on any network with nothing to install;\n" +
-			"--ca shows the link that installs Pier's CA on a phone; --tailscale shows the Tailscale URL instead.",
+			"--ca shows the link that installs Pier's CA on a phone; --setup shows pier.local/setup, the same page for every project;\n" +
+			"--tailscale shows the Tailscale URL instead.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := rt.app.Status(cmd.Context(), app.StatusRequest{Start: rt.start()})
 			if err != nil {
 				return rt.renderer("qr").Error(err)
 			}
-			url, err := qrTarget(status.Services, args, qrChoice{ca: ca, tailnet: tailnet, lan: lan})
+			var url string
+			if setup {
+				url, err = setupTarget(status.Local)
+			} else {
+				url, err = qrTarget(status.Services, args, qrChoice{ca: ca, tailnet: tailnet, lan: lan})
+			}
 			if err != nil {
 				return rt.renderer("qr").Error(err)
 			}
@@ -41,8 +48,17 @@ func newQRCommand(rt *runtime) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&lan, "lan", false, "show the plain-HTTP LAN address, which needs no .local lookup or certificate")
 	cmd.Flags().BoolVar(&ca, "ca", false, "show the link that installs Pier's CA on a phone")
+	cmd.Flags().BoolVar(&setup, "setup", false, "show pier.local/setup, where any device trusts Pier")
 	cmd.Flags().BoolVar(&tailnet, "tailscale", false, "show the Tailscale URL instead of the .local URL")
 	return cmd
+}
+
+// setupTarget is the setup page on pier.local, while the daemon publishes it.
+func setupTarget(local localname.Report) (string, error) {
+	if local.SetupURL == "" {
+		return "", fmt.Errorf("Pier is not serving %s right now; run pier up in a project with a .local name, or use pier qr --ca", localproxy.SetupHost)
+	}
+	return local.SetupURL, nil
 }
 
 // qrChoice is which of a service's addresses to encode.

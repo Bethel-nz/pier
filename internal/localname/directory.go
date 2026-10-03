@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Bethel-nz/pier/internal/certs"
+	"github.com/Bethel-nz/pier/internal/localproxy"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/trust"
 )
@@ -39,6 +40,8 @@ type Report struct {
 	APIURL string
 	// LANAddress is this machine's LAN address, for the plain-HTTP fallback URLs.
 	LANAddress string
+	// SetupURL is where any device opens Pier's setup page, while pier.local is live.
+	SetupURL string
 	// Tunnels are the running Cloudflare Tunnels, by project ID.
 	Tunnels  map[string]TunnelStatus
 	Warnings []string
@@ -135,7 +138,7 @@ func (d *Directory) Sync(ctx context.Context, root string, names []string, setti
 	}
 	beat, beatErr := readHeartbeat()
 	running := beatErr == nil && beat.Fresh(d.now())
-	if len(routes) == 0 && !daemonWork(saved) {
+	if len(routes) == 0 && !daemonWork(saved) && !setupHeld(d.now()) {
 		if running {
 			_ = requestStop(beat.PID)
 		}
@@ -248,6 +251,10 @@ func (d *Directory) prepare(root string, names []string, settings state.LocalSet
 		return fmt.Errorf("Pier could not issue a certificate for %s: %w", root, err)
 	}
 	report.CertIssued = issued
+	// pier.local belongs to the daemon, not a project; its certificate lives with the CA.
+	if _, err := ca.EnsureLeaf(setupCertDir(d.caDir), []string{localproxy.SetupHost}, d.now()); err != nil {
+		report.Warnings = append(report.Warnings, "Pier could not issue a certificate for "+localproxy.SetupHost+": "+err.Error())
+	}
 	report.Warnings = append(report.Warnings, browserStoreWarnings()...)
 	report.CATrusted = trust.IsTrusted(ca.Cert, ca.CertPath())
 	if report.CATrusted {
@@ -263,6 +270,11 @@ func (d *Directory) prepare(root string, names []string, settings state.LocalSet
 	report.CATrusted = true
 	report.TrustedNow = true
 	return nil
+}
+
+// setupCertDir holds pier.local's certificate, next to the CA that signs it.
+func setupCertDir(caDir string) string {
+	return filepath.Join(caDir, "setup")
 }
 
 // ignorePierDir keeps certificate keys out of git: in a repository, .pier/
@@ -385,6 +397,7 @@ func (d *Directory) fill(report *Report, beat Heartbeat, running bool) {
 	}
 	report.HTTPSPort = beat.HTTPSPort
 	report.LANAddress = beat.LANAddress
+	report.SetupURL = beat.SetupURL
 	if beat.APIPort != 0 {
 		report.APIURL = fmt.Sprintf("http://127.0.0.1:%d/api", beat.APIPort)
 	}

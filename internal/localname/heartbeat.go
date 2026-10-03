@@ -54,9 +54,11 @@ type Heartbeat struct {
 	// Tunnels are the Cloudflare Tunnels the daemon runs cloudflared for.
 	Tunnels []TunnelStatus `json:"tunnels,omitempty"`
 	// LANAddress is this machine's address on its default network, for LAN URLs.
-	LANAddress string   `json:"lanAddress,omitempty"`
-	Warnings   []string `json:"warnings,omitempty"`
-	Error      string   `json:"error,omitempty"`
+	LANAddress string `json:"lanAddress,omitempty"`
+	// SetupURL is the setup page on pier.local, set while that name is live.
+	SetupURL string   `json:"setupURL,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Fresh reports whether the daemon wrote this heartbeat recently.

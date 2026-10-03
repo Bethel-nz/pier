@@ -225,11 +225,13 @@ A service with `provider: cloudflare` is served by Cloudflare only, never also o
 
 ## Local names
 
-`local` must be a lowercase hostname ending in `.local`, such as `myapp.local` or `api.myapp.local`, and unique across every Pier project on the machine. It routes the whole host to the service's target: `path` applies only to path-based HTTPS exposure URLs, not to the `.local` name.
+`local` must be a lowercase hostname ending in `.local`, such as `myapp.local` or `api.myapp.local`, and unique across every Pier project on the machine. `pier.local` is reserved: the daemon serves the device setup page there. It routes the whole host to the service's target: `path` applies only to path-based HTTPS exposure URLs, not to the `.local` name.
 
 `pier up` issues `.pier/certs/cert.pem` and `key.pem` for the project's local names, signed by a per-user CA in the user config directory (`pier/ca/`). The CA is name-constrained to `.local`. Apps may reuse the project certificate directly, for example as Vite's `server.https`.
 
 A background daemon (`pier locald`, started by `pier up`) answers multicast DNS for the names, listens on port 443 (8443 when 443 is unavailable) and port 80 (redirects, and the CA install page at `/.pier/` with the CA as `/.pier/ca.pem`, `/.pier/pier-local-ca.crt`, and an iOS profile), and proxies to the loopback target. The upstream sees `Host` set to its target and `X-Forwarded-Host` set to the `.local` name. For same-origin `GET` and `HEAD` requests, `Origin` is translated to the target too, so dev servers that guard their internals by origin (Next.js `/_next` and hot reload) work without `allowedDevOrigins`; other origins and state-changing requests pass through unchanged. Dev servers that proxy to another Pier name must rewrite `Host` (`changeOrigin: true`); Pier stops forwarding loops with `508`.
+
+While it runs, the daemon also publishes `pier.local`, which belongs to no project and stays up through `pier down` and `pause` in any one of them. `http://pier.local/setup` (and `https://` once the device trusts the CA) serves the same install page and downloads as `/.pier/`, and `pier qr --setup` shows it. Its certificate comes from the same CA, so trusting the CA once still covers every project.
 
 `pier status` shows a local URL only while the daemon serves the name. Otherwise it shows the state: `probing`, `conflict` (another device or project answers for the name), `paused`, or `down`.
 

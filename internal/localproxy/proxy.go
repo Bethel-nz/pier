@@ -180,6 +180,10 @@ func (p *Proxy) route() http.Handler {
 			return
 		}
 		host := normalizeHost(r.Host)
+		if host == SetupHost {
+			p.serveSetupHost(w, r)
+			return
+		}
 		p.mu.RLock()
 		found := p.routes[host]
 		p.mu.RUnlock()
@@ -204,6 +208,10 @@ func (p *Proxy) HTTP() http.Handler {
 			return
 		}
 		host := normalizeHost(r.Host)
+		if host == SetupHost {
+			p.serveSetupHost(w, r) // served over plain HTTP too: the device does not trust Pier yet
+			return
+		}
 		p.mu.RLock()
 		_, known := p.routes[host]
 		port := p.httpsPort

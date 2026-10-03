@@ -185,7 +185,14 @@ func validTarget(service ResolvedService) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// SetupDomain is the .local name Pier's daemon keeps for itself: every
+// device opens http://pier.local/setup to trust Pier, whatever the project.
+const SetupDomain = "pier.local"
+
 func invalidDomainMessage(domain string) string {
+	if domain == SetupDomain {
+		return "pier.local is reserved for Pier's device setup page; pick another name"
+	}
 	if strings.Contains(domain, "://") || net.ParseIP(domain) != nil {
 		return "must be a hostname ending in .local, not an address"
 	}

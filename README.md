@@ -56,6 +56,7 @@ Either command puts `pier` in `$(go env GOPATH)/bin` (or `GOBIN` if set). Add th
 
 ```bash
 pier init
+pier --setup
 pier validate
 pier plan
 pier up
@@ -63,6 +64,8 @@ pier status
 pier
 pier down
 ```
+
+`pier --setup` finishes setting up the machine: it trusts Pier's certificate here and serves `http://pier.local/setup` (with a QR code) until Ctrl-C, so each phone, tablet, or laptop can trust it once. See [Trust HTTPS on other devices](#trust-https-on-other-devices).
 
 `pier` with no arguments opens the TUI when stdin and stdout are terminals. Otherwise it prints help. `pier tui` is the explicit alias.
 
@@ -133,7 +136,7 @@ A Wi-Fi change needs nothing from you on any of them. `pier pause` withdraws one
 
 `pier trust` covers only this machine. Every other device trusts Pier's CA once, and that covers every `.local` name Pier serves, including ones you add later. Redo it only after resetting the device or running `pier clean`, which replaces the CA.
 
-On the device, open `http://<local-name>/.pier/` (or scan `pier qr --ca`). The page detects the device and offers a one-tap installer. Compare the fingerprint it shows with `pier doctor`. Then finish per device:
+Run `pier --setup` on this machine, then on the device open `http://pier.local/setup` or scan the code it prints. While `pier up` serves a `.local` name, the page is there too, and `pier qr --setup` shows it. That address is the same for every project: the daemon keeps `pier.local` for itself while it runs. The page detects the device and offers a one-tap installer. If another machine on the network also runs Pier and holds `pier.local`, use `http://<local-name>/.pier/` (or `pier qr --ca`) instead. Compare the fingerprint it shows with `pier doctor`. Then finish per device:
 
 - **iPhone and iPad.** Open the page in Safari and allow the profile download. Install it in Settings → General → VPN & Device Management. Then turn on **Pier Local CA** in Settings → General → About → Certificate Trust Settings. iOS does not trust an installed root for HTTPS until you do this last step.
 - **Android.** Install the downloaded file in Settings → Security → Encryption & credentials → Install a certificate → CA certificate. Browsers trust it; apps don't (see Gotchas).
@@ -184,6 +187,7 @@ Every gotcha below came up in real use. Details in [`docs/troubleshooting.md`](d
 | --- | --- |
 | `pier agents [--write]` | Print an agent-ready Pier setup prompt, or write it to `AGENTS.md` |
 | `pier init [name]` | Create a minimal `pier.yaml` and `.pier/id` |
+| `pier --setup` | Trust Pier's CA here and serve `http://pier.local/setup` for other devices until Ctrl-C |
 | `pier validate` | Schema and semantic checks without requiring services to run |
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
 | `pier up` | Start `run:` commands, then validate, plan, apply, verify, persist ownership, print URLs |

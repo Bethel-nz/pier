@@ -2,6 +2,7 @@ package localname
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"os"
@@ -203,5 +204,50 @@ func TestCleanKeepsTheCAWhenTheTrustStoreRefuses(t *testing.T) {
 	report := d.Clean(context.Background())
 	if len(report.Errors) != 1 || !exists(filepath.Join(d.caDir, "ca.pem")) {
 		t.Fatalf("report = %+v; the CA must stay so a retry removes the same certificate", report)
+	}
+}
+
+func TestPrepareIssuesTheSetupNameCertificate(t *testing.T) {
+	useConfigDir(t)
+	d := NewDirectory(state.New(filepath.Join(t.TempDir(), "projects")))
+	d.caDir = filepath.Join(t.TempDir(), "ca")
+	root := t.TempDir()
+
+	var report Report
+	if err := d.prepare(root, []string{"app.local"}, state.LocalSettings{}, &report); err != nil {
+		t.Fatalf("prepare() = %v", err)
+	}
+	pair, err := tls.LoadX509KeyPair(filepath.Join(setupCertDir(d.caDir), "cert.pem"), filepath.Join(setupCertDir(d.caDir), "key.pem"))
+	if err != nil {
+		t.Fatalf("no pier.local certificate: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "pier.local" {
+		t.Fatalf("certificate names %v, want pier.local", leaf.DNSNames)
+	}
+}
+
+func TestSetupLeaseExpiresUnlessRenewed(t *testing.T) {
+	useConfigDir(t)
+	d := NewDirectory(state.New(filepath.Join(t.TempDir(), "projects")))
+	now := time.Now()
+	if setupHeld(now) {
+		t.Fatal("setup held before pier --setup ran")
+	}
+	if err := d.HoldSetup(); err != nil {
+		t.Fatal(err)
+	}
+	if !setupHeld(now) {
+		t.Fatal("setup not held right after HoldSetup")
+	}
+	if setupHeld(now.Add(setupLease + time.Second)) {
+		t.Fatal("a lease nobody renewed is still held")
+	}
+	d.ReleaseSetup()
+	if setupHeld(now) {
+		t.Fatal("setup still held after ReleaseSetup")
 	}
 }

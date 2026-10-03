@@ -95,7 +95,12 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 	cmd.PersistentFlags().BoolVar(&rt.noColor, "no-color", false, "disable color output")
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
+	var setup bool
+	cmd.Flags().BoolVar(&setup, "setup", false, "finish setting up this machine: serve pier.local/setup so other devices can trust Pier")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if setup {
+			return runSetup(cmd.Context(), rt)
+		}
 		if tui.StdioIsTTY() {
 			return runTUI(cmd.Context(), rt)
 		}

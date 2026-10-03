@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Bethel-nz/pier/internal/app"
+	"github.com/Bethel-nz/pier/internal/localname"
 )
 
 func qrServices() []app.ServiceInfo {
@@ -33,6 +34,16 @@ func TestQRTargetPicksTheRightURL(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("%s: qrTarget = %q, %v; want %q", tc.name, got, err, tc.want)
 		}
+	}
+}
+
+func TestSetupTargetIsPierLocal(t *testing.T) {
+	url, err := setupTarget(localname.Report{Running: true, SetupURL: "http://pier.local/setup"})
+	if err != nil || url != "http://pier.local/setup" {
+		t.Fatalf("setupTarget = %q, %v", url, err)
+	}
+	if _, err := setupTarget(localname.Report{Running: true}); err == nil || !strings.Contains(err.Error(), "pier.local") {
+		t.Fatalf("setupTarget without pier.local = %v, want it explained", err)
 	}
 }
 

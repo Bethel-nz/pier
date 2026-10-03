@@ -231,7 +231,8 @@ func (d *daemon) reconcile(now time.Time) bool {
 	}
 	d.beat.Error = ""
 	routes, conflicts := Routes(saved)
-	if len(routes) > 0 && !d.lan {
+	setupOnly := setupHeld(now) // pier --setup: serve pier.local before any project has a name
+	if (len(routes) > 0 || setupOnly) && !d.lan {
 		if err := d.openLAN(); err != nil {
 			// pier up reads the reason from the heartbeat; the next tick tries again.
 			d.beat.Error = err.Error()
@@ -292,7 +293,6 @@ func (d *daemon) reconcile(now time.Time) bool {
 	if err := d.proxy.SetRoutes(proxied); err != nil {
 		warnings = append(warnings, err.Error())
 	}
-	d.proxy.SetCertificates(served)
 	failedLAN := d.syncLANPorts(lan)
 	for name, detail := range d.syncTCP(tcp) {
 		failedLAN[name] = detail
@@ -307,6 +307,11 @@ func (d *daemon) reconcile(now time.Time) bool {
 	if ip := lanAddress(); ip != nil {
 		d.beat.LANAddress = ip.String()
 	}
+	setup := d.setupName(served)
+	if setup {
+		names = append(names, localproxy.SetupHost)
+	}
+	d.proxy.SetCertificates(served)
 
 	mdnsState := map[string]mdns.Status{}
 	if d.responder != nil {
@@ -335,6 +340,12 @@ func (d *daemon) reconcile(now time.Time) bool {
 			statuses[i].State = StateProbing
 		}
 	}
+	d.beat.SetupURL = ""
+	if setup && mdnsState[localproxy.SetupHost].State == mdns.Live {
+		d.beat.SetupURL = localproxy.SetupURL(d.beat.HTTPPort, d.beat.HTTPSPort)
+	} else if setup && mdnsState[localproxy.SetupHost].State == mdns.Conflict {
+		warnings = append(warnings, localproxy.SetupHost+" is taken by another device on this network, likely another machine running Pier; open http://<local-name>/.pier/ on devices instead")
+	}
 	for _, conflict := range conflicts {
 		statuses = append(statuses, NameStatus{
 			Name: conflict.Name, Project: conflict.ProjectID, State: StateConflict,
@@ -350,7 +361,29 @@ func (d *daemon) reconcile(now time.Time) bool {
 	d.beat.Warnings = warnings
 	d.beat.UpdatedAt = now
 	d.publish()
-	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows
+	return len(routes) > 0 || len(taps) > 0 || len(tunnels) > 0 || windows || setupOnly
+}
+
+// setupName adds pier.local's certificate to served, once the LAN is open and
+// pier up has issued it. It reports whether the daemon publishes the name.
+func (d *daemon) setupName(served map[string]*tls.Certificate) bool {
+	if !d.lan || len(d.caPEM) == 0 {
+		return false
+	}
+	if _, taken := served[localproxy.SetupHost]; taken {
+		return false // a project from before the name was reserved
+	}
+	caDir, err := certs.DefaultCADir()
+	if err != nil {
+		return false
+	}
+	dir := setupCertDir(caDir)
+	cert, err := d.certificate(filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"))
+	if err != nil {
+		return false
+	}
+	served[localproxy.SetupHost] = cert
+	return true
 }
 
 // certificate loads a project's leaf, reloading it when the file changes.

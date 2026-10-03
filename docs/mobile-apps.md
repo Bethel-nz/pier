@@ -84,7 +84,7 @@ Each device and simulator has its own trust store. Do this once per device; it c
 
 | Where the app runs | What to do |
 |---|---|
-| iPhone / iPad | In Safari open `http://myapp-api.local/.pier/` (or AirDrop `~/Library/Application Support/pier/ca/ca.pem`). Install it in Settings → General → VPN & Device Management, then turn on **Pier Local CA** in Settings → General → About → Certificate Trust Settings. |
+| iPhone / iPad | In Safari open `http://pier.local/setup` (or `http://myapp-api.local/.pier/`, or AirDrop `~/Library/Application Support/pier/ca/ca.pem`). Install it in Settings → General → VPN & Device Management, then turn on **Pier Local CA** in Settings → General → About → Certificate Trust Settings. |
 | iOS Simulator | `xcrun simctl keychain booted add-root-cert "$HOME/Library/Application Support/pier/ca/ca.pem"`. Repeat after erasing the simulator. |
 | Android device or emulator | Install `ca.pem` as a CA certificate. Apps ignore user CAs by default, so see below. |
 
