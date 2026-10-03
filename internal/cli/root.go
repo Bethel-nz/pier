@@ -9,9 +9,9 @@ import (
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/project"
+	"github.com/Bethel-nz/pier/internal/prompt"
 	"github.com/Bethel-nz/pier/internal/state"
 	"github.com/Bethel-nz/pier/internal/tailscale"
-	"github.com/Bethel-nz/pier/internal/tui"
 )
 
 // App is the CLI's view of the shared application service.
@@ -101,9 +101,6 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		if setup {
 			return runSetup(cmd.Context(), rt)
 		}
-		if tui.StdioIsTTY() {
-			return runTUI(cmd.Context(), rt)
-		}
 		return cmd.Help()
 	}
 	cmd.AddCommand(
@@ -122,7 +119,6 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		newServiceCommand(rt),
 		newOpenCommand(rt),
 		newCopyCommand(rt),
-		newTUICommand(rt),
 		newTrustCommand(rt),
 		newQRCommand(rt),
 		newCleanCommand(rt),
@@ -132,7 +128,7 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 	if local != nil {
 		cmd.PersistentPreRun = func(*cobra.Command, []string) {
 			// pier up may ask the OS to trust Pier's CA, but only with a person at the terminal.
-			local.Interactive = tui.StdioIsTTY() && !rt.json
+			local.Interactive = prompt.StdioIsTTY() && !rt.json
 		}
 	}
 	return cmd

@@ -62,13 +62,10 @@ pier validate
 pier plan
 pier up
 pier status
-pier
 pier down
 ```
 
 `pier --setup` finishes setting up the machine: it trusts Pier's certificate here and serves `http://pier.local/setup` (with a QR code) until Ctrl-C, so each phone, tablet, or laptop can trust it once. See [Trust HTTPS on other devices](#trust-https-on-other-devices).
-
-`pier` with no arguments opens the TUI when stdin and stdout are terminals. Otherwise it prints help. `pier tui` is the explicit alias.
 
 ## Example `pier.yaml`
 
@@ -204,7 +201,6 @@ Every gotcha below came up in real use. Details in [`docs/troubleshooting.md`](d
 | `pier copy <service> [--local]` | Copy the current URL, or the `.local` URL |
 | `pier trust [--remove]` | Trust Pier's local CA again, or remove it (`pier up` trusts it for you) |
 | `pier replay [id...]` | List requests kept by `capture:`, or send them to the service again (`--since 10m`, `--show`) |
-| `pier` / `pier tui` | Interactive management interface |
 
 Global flags: `--config`, `--json`, `--verbose`, `--no-color`.
 
@@ -212,16 +208,6 @@ Global flags: `--config`, `--json`, `--verbose`, `--no-color`.
 - `pier up --force` and `pier plan --force` take over unmanaged routes on the same identity when Pier would otherwise refuse.
 - `--json` is supported for `validate`, `plan`, `status`, and `doctor` (and the other commands). The envelope is `{version, command, project, data, warnings, errors}` with schema version `1`.
 - `--verbose` includes raw backend diagnostics. Human-readable errors always lead with a Pier explanation.
-
-## TUI keys
-
-```
-↑/↓ select   a add   space pause/resume
-u up         d down  p plan   s share/unshare
-c copy       o open  r refresh  ? help   q quit
-```
-
-Deletes and unmanaged-route takeovers ask for confirmation. `q` does not quit while a confirmation modal is open.
 
 ## Who sees your traffic
 
