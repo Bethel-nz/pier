@@ -100,6 +100,12 @@ services:
 		t.Fatalf("certificate names %v do not include %s", certNames, name)
 	}
 
+	// pier.local belongs to the daemon: the setup page, on Pier's certificate for it.
+	setupNames, setup := getHTTPS(t, "127.0.0.1:"+httpsPort, "pier.local", "/setup")
+	if !contains(setupNames, "pier.local") || !strings.Contains(setup, "Pier Local CA") {
+		t.Fatalf("pier.local/setup served certificate %v and %q, want Pier's setup page", setupNames, setup)
+	}
+
 	// The LAN fallback, plain HTTP on this machine's LAN address: no DNS, no CA.
 	if got := getHTTP(t, strings.TrimSuffix(lanURL, "/")+"/hello"); got != body {
 		t.Fatalf("%s answered %q, want %q", lanURL, got, body)

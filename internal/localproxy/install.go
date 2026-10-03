@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	// SetupHost is the name the daemon serves the setup page on for every
+	// project, so a device never needs to know which project to ask.
+	SetupHost = "pier.local"
+	// SetupPath is the setup page on SetupHost.
+	SetupPath = "/setup"
 	// InstallPath is the page that walks a device through trusting the Pier CA.
 	InstallPath = "/.pier/"
 	// CAPath serves the Pier CA as PEM, for tools and scripts.
@@ -48,11 +53,42 @@ func newCAFiles(contents []byte) *caFiles {
 	}
 }
 
+// SetupURL is the setup page's address for the daemon's ports: plain HTTP
+// when it has an HTTP port, since the device does not trust Pier's CA yet.
+func SetupURL(httpPort, httpsPort int) string {
+	switch {
+	case httpPort == 80:
+		return "http://" + SetupHost + SetupPath
+	case httpPort != 0:
+		return "http://" + net.JoinHostPort(SetupHost, strconv.Itoa(httpPort)) + SetupPath
+	case httpsPort == 443 || httpsPort == 0:
+		return "https://" + SetupHost + SetupPath
+	default:
+		return "https://" + net.JoinHostPort(SetupHost, strconv.Itoa(httpsPort)) + SetupPath
+	}
+}
+
+// serveSetupHost answers every request for pier.local: the setup page at
+// /setup and /, the same CA downloads as /.pier/, and nothing else.
+func (p *Proxy) serveSetupHost(w http.ResponseWriter, r *http.Request) {
+	if p.serveInstall(w, r) {
+		return
+	}
+	switch r.URL.Path {
+	case "/":
+		http.Redirect(w, r, SetupPath, http.StatusFound)
+	default:
+		writePage(w, http.StatusNotFound, "Nothing here",
+			`pier.local only helps devices trust Pier. Open <a href="`+SetupPath+`">`+SetupHost+SetupPath+`</a>.`)
+	}
+}
+
 // serveInstall answers the install page and CA downloads. It reports whether
 // the request was one of them.
 func (p *Proxy) serveInstall(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
-	if path != "/.pier" && path != InstallPath && path != CAPath && path != crtPath && path != profilePath {
+	setup := path == SetupPath && normalizeHost(r.Host) == SetupHost
+	if !setup && path != "/.pier" && path != InstallPath && path != CAPath && path != crtPath && path != profilePath {
 		return false
 	}
 	p.mu.RLock()

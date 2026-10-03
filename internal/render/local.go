@@ -20,6 +20,7 @@ type JSONLocal struct {
 	CATrusted     bool     `json:"caTrusted"`
 	CertDir       string   `json:"certDir,omitempty"`
 	APIURL        string   `json:"apiUrl,omitempty"`
+	SetupURL      string   `json:"setupUrl,omitempty"`
 	Warnings      []string `json:"warnings,omitempty"`
 }
 
@@ -35,6 +36,7 @@ func jsonLocal(services []app.ServiceInfo, report localname.Report) *JSONLocal {
 		CATrusted:     report.CATrusted,
 		CertDir:       report.CertDir,
 		APIURL:        report.APIURL,
+		SetupURL:      report.SetupURL,
 		Warnings:      localWarnings(report),
 	}
 }
@@ -97,13 +99,25 @@ func writeLocalSetup(w io.Writer, services []app.ServiceInfo, report localname.R
 		fmt.Fprintln(w, "trust        Pier Local CA is not trusted yet, so browsers will warn. Run pier trust once")
 	}
 	if report.CACreated || report.TrustedNow {
-		if phone := firstLive(services); phone != "" {
-			fmt.Fprintf(w, "phones       open http://%s%s once on each other device to trust Pier\n", phone, localproxy.InstallPath)
+		if url := setupURL(services, report); url != "" {
+			fmt.Fprintf(w, "phones       open %s once on each other device to trust Pier\n", url)
 		}
 	}
 	for _, warning := range localWarnings(report) {
 		fmt.Fprintf(w, "warning      %s\n", warning)
 	}
+}
+
+// setupURL is where another device trusts Pier: pier.local while the daemon
+// publishes it, else the setup page on one of the project's live names.
+func setupURL(services []app.ServiceInfo, report localname.Report) string {
+	if report.SetupURL != "" {
+		return report.SetupURL
+	}
+	if phone := firstLive(services); phone != "" {
+		return "http://" + phone + localproxy.InstallPath
+	}
+	return ""
 }
 
 func firstLive(services []app.ServiceInfo) string {
@@ -134,6 +148,9 @@ func writeLocalDoctor(w io.Writer, domains []string, report localname.Report) {
 	}
 	if report.APIURL != "" {
 		fmt.Fprintf(w, "  api: %s\n", report.APIURL)
+	}
+	if report.SetupURL != "" {
+		fmt.Fprintf(w, "  setup: %s\n", report.SetupURL)
 	}
 	for _, domain := range domains {
 		status, ok := report.Names[domain]

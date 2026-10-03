@@ -127,7 +127,7 @@ The daemon answers with this machine's address on the asking device's own networ
 
 `pier trust` covers only this machine. Every other device trusts Pier's CA once, and that covers every `.local` name Pier serves, including ones you add later. Redo it only after resetting the device or running `pier clean`, which replaces the CA.
 
-On the device, open `http://<local-name>/.pier/` (or scan `pier qr --ca`). The page detects the device and offers a one-tap installer. Compare the fingerprint it shows with `pier doctor`. Then finish per device:
+On the device, open `http://pier.local/setup` (or scan `pier qr --setup`). That address is the same for every project: the daemon keeps `pier.local` for itself while it runs. The page detects the device and offers a one-tap installer. If another machine on the network also runs Pier and holds `pier.local`, use `http://<local-name>/.pier/` (or `pier qr --ca`) instead. Compare the fingerprint it shows with `pier doctor`. Then finish per device:
 
 - **iPhone and iPad.** Open the page in Safari and allow the profile download. Install it in Settings → General → VPN & Device Management. Then turn on **Pier Local CA** in Settings → General → About → Certificate Trust Settings. iOS does not trust an installed root for HTTPS until you do this last step.
 - **Android.** Install the downloaded file in Settings → Security → Encryption & credentials → Install a certificate → CA certificate. Browsers trust it; apps don't (see Gotchas).

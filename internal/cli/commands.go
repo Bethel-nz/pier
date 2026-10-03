@@ -13,6 +13,7 @@ import (
 
 	"github.com/Bethel-nz/pier/internal/app"
 	"github.com/Bethel-nz/pier/internal/localname"
+	"github.com/Bethel-nz/pier/internal/localproxy"
 	"github.com/Bethel-nz/pier/internal/project"
 	"github.com/Bethel-nz/pier/internal/render"
 	"github.com/Bethel-nz/pier/internal/state"
@@ -106,6 +107,8 @@ func newInitCommand(rt *runtime) *cobra.Command {
 				return rt.renderer("init").Error(err)
 			}
 			fmt.Fprintf(rt.stdout, "initialized %s\n", ctx.ConfigPath)
+			fmt.Fprintf(rt.stdout, "devices      once pier up serves a .local name, open http://%s%s on each phone or laptop to trust Pier\n",
+				localproxy.SetupHost, localproxy.SetupPath)
 			return nil
 		},
 	}
