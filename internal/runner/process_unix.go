@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,4 +49,10 @@ func Acquire(dir string) (*Lock, bool, error) {
 func (l *Lock) Release() {
 	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
 	_ = l.file.Close()
+}
+
+// alive reports whether a process with this pid exists.
+func alive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

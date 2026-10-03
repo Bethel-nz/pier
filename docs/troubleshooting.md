@@ -58,7 +58,9 @@ When a backend documents its own listener ports or bandwidth limits, Pier follow
 
 ## Health and `--strict`
 
-Pier dials each service host/port with a 500ms timeout. A failed check is shown as `unavailable` and does not, by itself, stop `pier up`. `--strict` turns any unavailable target into a pre-apply error.
+Pier dials each service host/port with a 500ms timeout. A failed check is shown as `unavailable`. With a [`health`](configuration.md#health) path, a target that accepts connections but answers its health path with an error is `unhealthy`, with the code or error. Neither, by itself, stops `pier up`. `--strict` turns any target that is not healthy into a pre-apply error.
+
+A `run:` command that keeps crashing is restarted with backoff, then left down after 5 crashes in a minute. `pier status` shows `crashed (exit 1): <last line>`, and `pier status --json` has its last 20 lines under `process.output`.
 
 ## DNS and reachability
 

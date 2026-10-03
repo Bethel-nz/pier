@@ -53,6 +53,12 @@ type Service struct {
 	Env map[string]string `yaml:"env"`
 	// Watch restarts Run when a file matching one of these globs changes.
 	Watch []string `yaml:"watch"`
+	// Restart is on-failure (the default) or never: whether Pier starts Run
+	// again after it exits with an error.
+	Restart string `yaml:"restart"`
+	// Health is a path, such as /healthz, that must answer 2xx or 3xx for the
+	// service to count as healthy. Without it, an open port is enough.
+	Health string `yaml:"health"`
 	// Throttle slows traffic to the service, such as "3g".
 	Throttle *Throttle `yaml:"throttle"`
 	// Capture keeps requests to the service for pier replay, such as "24h".
@@ -118,6 +124,8 @@ type ResolvedService struct {
 	Public   bool
 	Domain   string
 	Run      Run
+	// Health is the HTTP path checked for health; empty checks the port only.
+	Health string
 	// PublicFor is how long Public lasts after each pier up; 0 is until pier down.
 	PublicFor time.Duration
 	// Throttle is zero at full speed.
@@ -157,4 +165,13 @@ type Run struct {
 	Dir     string // relative to the project root
 	Env     map[string]string
 	Watch   []string
+	Restart Restart
 }
+
+// Restart says whether Pier starts a run: command again after it fails.
+type Restart string
+
+const (
+	RestartOnFailure Restart = "on-failure"
+	RestartNever     Restart = "never"
+)

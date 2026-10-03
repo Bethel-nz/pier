@@ -18,14 +18,16 @@ type prefixer struct {
 	width   int
 	colors  map[string]string
 	pending map[string]*bytes.Buffer
+	tails   map[string]*tail
 }
 
 func newPrefixer(out io.Writer, names []string, color bool) *prefixer {
-	p := &prefixer{out: out, color: color, colors: map[string]string{}, pending: map[string]*bytes.Buffer{}}
+	p := &prefixer{out: out, color: color, colors: map[string]string{}, pending: map[string]*bytes.Buffer{}, tails: map[string]*tail{}}
 	for i, name := range names {
 		p.width = max(p.width, len(name))
 		p.colors[name] = palette[i%len(palette)]
 		p.pending[name] = &bytes.Buffer{}
+		p.tails[name] = &tail{}
 	}
 	return p
 }
@@ -57,6 +59,7 @@ func (w lineWriter) Write(b []byte) (int, error) {
 			break
 		}
 		_, _ = io.WriteString(w.p.out, w.p.prefix(w.name)+string(line))
+		w.p.tails[w.name].add(string(line))
 	}
 	return len(b), nil
 }
@@ -67,8 +70,23 @@ func (p *prefixer) flush(name string) {
 	defer p.mu.Unlock()
 	if buf := p.pending[name]; buf.Len() > 0 {
 		_, _ = io.WriteString(p.out, p.prefix(name)+buf.String()+"\n")
+		p.tails[name].add(buf.String())
 		buf.Reset()
 	}
+}
+
+// output is the end of what a process printed since it last started.
+func (p *prefixer) output(name string) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.tails[name].snapshot()
+}
+
+// restart forgets a process's earlier output when it starts again.
+func (p *prefixer) restart(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tails[name] = &tail{}
 }
 
 // note prints Pier's own line about a process, set apart from its output.

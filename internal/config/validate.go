@@ -83,6 +83,7 @@ func Validate(project Project) []ValidationError {
 		}
 		errors = append(errors, providerErrors(service, claimedHosts)...)
 		errors = append(errors, runErrors(service)...)
+		errors = append(errors, healthErrors(service)...)
 		if _, err := resolveThrottle(service.throttle); err != nil {
 			errors = append(errors, serviceError(service.Name, "throttle", err.Error()))
 		}
@@ -145,7 +146,7 @@ func runErrors(service ResolvedService) []ValidationError {
 	var errors []ValidationError
 	run := service.Run
 	if run.Command == "" {
-		for field, set := range map[string]bool{"dir": run.Dir != "", "env": len(run.Env) > 0, "watch": len(run.Watch) > 0} {
+		for field, set := range map[string]bool{"dir": run.Dir != "", "env": len(run.Env) > 0, "watch": len(run.Watch) > 0, "restart": run.Restart != ""} {
 			if set {
 				errors = append(errors, serviceError(service.Name, field, "needs run"))
 			}
@@ -154,6 +155,9 @@ func runErrors(service ResolvedService) []ValidationError {
 	}
 	if filepath.IsAbs(run.Dir) || strings.HasPrefix(filepath.ToSlash(filepath.Clean(run.Dir)), "../") {
 		errors = append(errors, serviceError(service.Name, "dir", "must be a folder inside the project"))
+	}
+	if run.Restart != "" && run.Restart != RestartOnFailure && run.Restart != RestartNever {
+		errors = append(errors, serviceError(service.Name, "restart", "must be on-failure or never"))
 	}
 	for name := range run.Env {
 		if !envName.MatchString(name) {
@@ -168,6 +172,18 @@ func runErrors(service ResolvedService) []ValidationError {
 		}
 	}
 	return errors
+}
+
+func healthErrors(service ResolvedService) []ValidationError {
+	switch {
+	case service.Health == "":
+		return nil
+	case service.TCP():
+		return []ValidationError{serviceError(service.Name, "health", "works on HTTP services only")}
+	case !strings.HasPrefix(service.Health, "/") || strings.ContainsAny(service.Health, " \t#"):
+		return []ValidationError{serviceError(service.Name, "health", "must be a path such as /healthz")}
+	}
+	return nil
 }
 
 func serviceError(service, field, message string) ValidationError {

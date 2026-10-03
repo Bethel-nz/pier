@@ -61,5 +61,6 @@ func process(root string, service config.ResolvedService) runner.Process {
 		Dir:     filepath.Join(root, filepath.FromSlash(service.Run.Dir)),
 		Env:     env,
 		Watch:   service.Run.Watch,
+		Restart: runner.Restart(service.Run.Restart),
 	}
 }

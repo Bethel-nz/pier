@@ -82,7 +82,7 @@ func TestSupervisorStopsProcessTreeOnCancel(t *testing.T) {
 	}
 	var out syncBuffer
 	ctx, cancel := context.WithCancel(context.Background())
-	s := Start(ctx, []Process{{Name: "web", Command: `echo "port $PORT"; sleep 30`, Dir: t.TempDir(), Env: map[string]string{"PORT": "3000"}}}, &out, false)
+	s := Start(ctx, []Process{{Name: "web", Command: `echo "port $PORT"; sleep 30`, Dir: t.TempDir(), Env: map[string]string{"PORT": "3000"}}}, &out, Options{})
 	waitFor(t, &out, "web │ port 3000")
 	if got := s.Running(); len(got) != 1 {
 		t.Fatalf("running = %v", got)
@@ -98,15 +98,18 @@ func TestSupervisorStopsProcessTreeOnCancel(t *testing.T) {
 	waitFor(t, &out, "pier: stopped")
 }
 
-func TestSupervisorReportsExitAndDoesNotRestart(t *testing.T) {
+func TestSupervisorReportsExitAndDoesNotRestartWithRestartNever(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses sh")
 	}
 	var out syncBuffer
-	s := Start(context.Background(), []Process{{Name: "api", Command: "exit 3", Dir: t.TempDir()}}, &out, false)
+	s := Start(context.Background(), []Process{{Name: "api", Command: "exit 3", Dir: t.TempDir(), Restart: RestartNever}}, &out, Options{})
 	s.Wait()
-	if !strings.Contains(out.String(), "api │ pier: exited with code 3\n") {
+	if !strings.Contains(out.String(), "api │ pier: exited with code 3\n") || strings.Contains(out.String(), "restarting") {
 		t.Fatalf("output = %q", out.String())
+	}
+	if got := s.Status(); len(got) != 1 || got[0].State != StateCrashed {
+		t.Fatalf("status = %+v, want crashed", got)
 	}
 }
 
@@ -129,7 +132,7 @@ func TestSupervisorRestartsOnWatchedChange(t *testing.T) {
 	var out syncBuffer
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := Start(ctx, []Process{{Name: "api", Command: "echo started; sleep 30", Dir: dir, Watch: []string{"**/*.go"}}}, &out, false)
+	s := Start(ctx, []Process{{Name: "api", Command: "echo started; sleep 30", Dir: dir, Watch: []string{"**/*.go"}}}, &out, Options{})
 	waitFor(t, &out, "api │ started")
 
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o644); err != nil {
