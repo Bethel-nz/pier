@@ -16,12 +16,28 @@ import (
 // TestMain lets this test binary stand in for cloudflared: run with
 // PIER_FAKE_CLOUDFLARED set, it serves /ready on --metrics, or logs an
 // error and exits when its config routes fail.example.com.
+//
+// Otherwise it runs the tests under a temporary config directory, so a test
+// that publishes a heartbeat never writes into the real user's Pier folder.
 func TestMain(m *testing.M) {
 	if os.Getenv("PIER_FAKE_CLOUDFLARED") != "" {
 		fakeCloudflared(os.Args[1:])
 		return
 	}
-	os.Exit(m.Run())
+	os.Exit(runIsolated(m))
+}
+
+func runIsolated(m *testing.M) int {
+	dir, err := os.MkdirTemp("", "pier-localname-test")
+	if err != nil {
+		fmt.Println(err)
+		return 1
+	}
+	defer os.RemoveAll(dir)
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "AppData"} {
+		_ = os.Setenv(key, dir)
+	}
+	return m.Run()
 }
 
 func fakeCloudflared(args []string) {
