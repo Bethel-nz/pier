@@ -237,7 +237,7 @@ A service with `provider: cloudflare` is served by Cloudflare only, never also o
 - Throttle and capture apply to Cloudflare traffic too.
 - Your app sees the public hostname in `Host`. Dev servers that check it, such as Vite, need it allowed.
 - `pier status` and `pier doctor` show the tunnel as connecting, connected, or failed with `cloudflared`'s error. Its log is `.pier/cloudflared.log`.
-- `cloudflared` cannot delete DNS records. When a hostname leaves `pier.yaml`, its record keeps pointing at the tunnel, so `pier up`, `pier status`, `pier doctor`, and `pier clean` list it until you delete it in the Cloudflare dashboard. To remove everything, delete the records there and run `cloudflared tunnel delete` with the tunnel's name.
+- `cloudflared` cannot delete DNS records. When a hostname leaves `pier.yaml`, its record keeps pointing at the tunnel, so `pier up`, `pier status`, `pier doctor`, and `pier clean` list it until you delete it in the Cloudflare dashboard (Pier notices once the name stops resolving; in a zone with a wildcard record it never does, so `pier clean` lists it one last time and forgets it). To remove everything, delete the records there and run `cloudflared tunnel delete` with the tunnel's name.
 
 ## Local names
 

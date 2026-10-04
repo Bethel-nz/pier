@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/Bethel-nz/pier/internal/capture"
 	"github.com/Bethel-nz/pier/internal/certs"
@@ -66,10 +67,18 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 		fail("read projects", err)
 	}
 	for _, project := range saved {
-		if project.Tunnel != nil {
-			for _, host := range project.Tunnel.Orphans {
-				report.OrphanedDNS = append(report.OrphanedDNS, OrphanedDNS{Hostname: host, Tunnel: project.Tunnel.Name, Project: project.Name})
+		forgotOrphans := false
+		if tunnel := project.Tunnel; tunnel != nil && len(tunnel.Orphans) > 0 {
+			// Said here once, then forgotten: in a zone with a wildcard record a
+			// deleted hostname still resolves, so Pier could never tell.
+			gone := map[string]bool{}
+			for _, host := range tunnel.Orphans {
+				report.OrphanedDNS = append(report.OrphanedDNS, OrphanedDNS{Hostname: host, Tunnel: tunnel.Name, Project: project.Name})
+				gone[host] = true
 			}
+			tunnel.Routed = slices.DeleteFunc(tunnel.Routed, func(host string) bool { return gone[host] })
+			tunnel.Orphans = nil
+			forgotOrphans = true
 		}
 		if project.Path != "" {
 			dir := certs.LeafDir(project.Path)
@@ -91,6 +100,11 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 			}
 		}
 		if len(project.Domains) == 0 {
+			if forgotOrphans {
+				if err := d.projects.Save(project); err != nil {
+					fail("forget orphaned DNS records of "+project.Name, err)
+				}
+			}
 			continue
 		}
 		for _, domain := range project.Domains {

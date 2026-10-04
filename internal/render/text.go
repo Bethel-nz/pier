@@ -495,7 +495,7 @@ func writeTunnelSetup(w io.Writer, setup app.TunnelSetup) {
 	for _, host := range setup.Routed {
 		fmt.Fprintf(w, "cloudflare   %s → tunnel %s\n", host, setup.Tunnel)
 	}
-	if len(setup.Routed) > 0 {
+	if setup.FirstRoute {
 		// Said once, when a hostname first goes out through Cloudflare.
 		fmt.Fprintln(w, "cloudflare   note: Cloudflare ends TLS for these hostnames, so it can read their traffic")
 	}

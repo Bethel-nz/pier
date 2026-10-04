@@ -173,7 +173,8 @@ func TestDownKeepsTheTunnelButServesNothing(t *testing.T) {
 	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"route 6f1c api.example.com", "route 6f1c app.example.com"}
+	// Pier made these records, so it may point them at the tunnel again.
+	want := []string{"route 6f1c api.example.com --overwrite", "route 6f1c app.example.com --overwrite"}
 	if !reflect.DeepEqual(tunnels.calls, want) {
 		t.Fatalf("calls = %v, want %v", tunnels.calls, want)
 	}
@@ -299,7 +300,7 @@ func TestUpRechecksTheTunnelWhenAskedOrWhenItFailed(t *testing.T) {
 	svc := env.cloudflareService(tunnels, local)
 	upOnce(t, env, svc)
 	name := env.state.Tunnel.Name
-	want := []string{"ensure " + name, "route 6f1c api.example.com", "route 6f1c app.example.com"}
+	want := []string{"ensure " + name, "route 6f1c api.example.com --overwrite", "route 6f1c app.example.com --overwrite"}
 
 	tunnels.calls = nil
 	result, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root, Recheck: true})

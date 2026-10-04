@@ -41,6 +41,9 @@ type TunnelSetup struct {
 	Rechecked bool
 	// Routed are hostnames this run pointed at the tunnel.
 	Routed []string
+	// FirstRoute is set when a hostname went out through Cloudflare for
+	// the first time, rather than being pointed at the tunnel again.
+	FirstRoute bool
 	// Orphans are hostnames that left pier.yaml; their DNS records still
 	// point at the tunnel until removed in the Cloudflare dashboard.
 	Orphans []string
@@ -143,14 +146,21 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 		tunnel.ID, tunnel.Credentials, setup.Created = made.ID, made.Credentials, created
 		routed = map[string]bool{} // a different tunnel: its records point elsewhere
 	}
+	// Records Pier made before may be pointed at this tunnel without --force:
+	// after a new tunnel replaced a deleted one, they still name the old one.
+	made := map[string]bool{}
+	for _, name := range history(saved, nil) {
+		made[name] = true
+	}
 	for _, host := range tunnel.Hosts {
 		if routed[host.Hostname] {
 			continue
 		}
-		if err := s.tunnels.RouteDNS(ctx, tunnel.ID, host.Hostname, force); err != nil {
+		if err := s.tunnels.RouteDNS(ctx, tunnel.ID, host.Hostname, force || made[host.Hostname]); err != nil {
 			return nil, setup, err
 		}
 		setup.Routed = append(setup.Routed, host.Hostname)
+		setup.FirstRoute = setup.FirstRoute || !made[host.Hostname]
 	}
 	return tunnel, setup, nil
 }
