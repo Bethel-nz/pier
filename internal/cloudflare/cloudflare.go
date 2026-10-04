@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -37,6 +38,15 @@ var ErrNotInstalled = errors.New("cloudflared is not installed; get it from http
 
 // ErrRecordExists means a hostname already has a DNS record that Pier did not make.
 var ErrRecordExists = errors.New("already has a DNS record")
+
+// ErrWrongZone means cloudflared wrote the record in another zone: the one
+// this machine logged in to, with that zone's name appended to the hostname.
+var ErrWrongZone = errors.New("Cloudflare put the DNS record in another zone")
+
+// routedName finds the record cloudflared reports writing, in lines such as
+// "Added CNAME app.example.com which will route to this tunnel" or
+// "app.example.com is already configured to route to your tunnel".
+var routedName = regexp.MustCompile(`(?:Added CNAME (\S+) which will route|(\S+) is already configured to route)`)
 
 // Tunnel is a named Cloudflare Tunnel and the file holding its secret.
 type Tunnel struct {
@@ -188,14 +198,34 @@ func (c *Client) RouteDNS(ctx context.Context, tunnelID, hostname string, overwr
 	if overwrite {
 		args = append(args, "--overwrite-dns")
 	}
-	_, err := c.run(ctx, append(args, tunnelID, hostname)...)
+	stdout, stderr, err := c.runner.Run(ctx, c.Binary, append(args, tunnelID, hostname)...)
 	if err == nil {
-		return nil
+		return checkZone(hostname, stdout, stderr)
 	}
+	err = errors.New(lastLine(stderr, stdout, err))
 	if strings.Contains(err.Error(), "already exists") {
 		return fmt.Errorf("%s %w; run pier up --force to point it at this project's tunnel", hostname, ErrRecordExists)
 	}
 	return fmt.Errorf("Pier could not route %s to its tunnel: %w", hostname, err)
+}
+
+// checkZone refuses a record cloudflared wrote under another name. Logged in
+// to one zone, cloudflared turns app.other.com into app.other.com.<zone>.
+func checkZone(hostname string, outputs ...[]byte) error {
+	for _, output := range outputs {
+		match := routedName.FindSubmatch(output)
+		if match == nil {
+			continue
+		}
+		written := strings.TrimSuffix(string(match[1])+string(match[2]), ".")
+		if strings.EqualFold(written, hostname) {
+			return nil
+		}
+		return fmt.Errorf("%w: it wrote %s, not %s, because cloudflared on this machine is logged in to another zone. "+
+			"Delete %s in the Cloudflare dashboard, then run cloudflared tunnel login and pick the zone for %s (or change domain: in pier.yaml), and run pier up",
+			ErrWrongZone, written, hostname, written, hostname)
+	}
+	return nil // an older cloudflared that says nothing: trust it
 }
 
 // run executes cloudflared, turning a failure into its last line of output.

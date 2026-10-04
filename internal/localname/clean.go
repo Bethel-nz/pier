@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/Bethel-nz/pier/internal/capture"
 	"github.com/Bethel-nz/pier/internal/certs"
@@ -20,7 +21,17 @@ type CleanReport struct {
 	// RemovedCaptures are capture files: requests kept for pier replay.
 	RemovedCaptures []string `json:"removedCaptures,omitempty"`
 	ClearedNames    []string `json:"clearedNames,omitempty"`
-	Errors          []string `json:"errors,omitempty"`
+	// OrphanedDNS are Cloudflare hostnames no longer in any pier.yaml whose
+	// DNS records still point at a Pier tunnel. Pier cannot delete them.
+	OrphanedDNS []OrphanedDNS `json:"orphanedDNS,omitempty"`
+	Errors      []string      `json:"errors,omitempty"`
+}
+
+// OrphanedDNS is a hostname still routed to a project's tunnel.
+type OrphanedDNS struct {
+	Hostname string `json:"hostname"`
+	Tunnel   string `json:"tunnel"`
+	Project  string `json:"project"`
 }
 
 // runtimeFiles are the daemon's files, plus the ones the first local-names
@@ -56,6 +67,19 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 		fail("read projects", err)
 	}
 	for _, project := range saved {
+		forgotOrphans := false
+		if tunnel := project.Tunnel; tunnel != nil && len(tunnel.Orphans) > 0 {
+			// Said here once, then forgotten: in a zone with a wildcard record a
+			// deleted hostname still resolves, so Pier could never tell.
+			gone := map[string]bool{}
+			for _, host := range tunnel.Orphans {
+				report.OrphanedDNS = append(report.OrphanedDNS, OrphanedDNS{Hostname: host, Tunnel: tunnel.Name, Project: project.Name})
+				gone[host] = true
+			}
+			tunnel.Routed = slices.DeleteFunc(tunnel.Routed, func(host string) bool { return gone[host] })
+			tunnel.Orphans = nil
+			forgotOrphans = true
+		}
 		if project.Path != "" {
 			dir := certs.LeafDir(project.Path)
 			if _, statErr := os.Stat(dir); statErr == nil {
@@ -76,6 +100,11 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 			}
 		}
 		if len(project.Domains) == 0 {
+			if forgotOrphans {
+				if err := d.projects.Save(project); err != nil {
+					fail("forget orphaned DNS records of "+project.Name, err)
+				}
+			}
 			continue
 		}
 		for _, domain := range project.Domains {

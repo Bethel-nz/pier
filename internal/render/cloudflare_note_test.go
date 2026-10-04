@@ -17,10 +17,13 @@ func TestUpSaysCloudflareCanReadNewHostnames(t *testing.T) {
 		}
 		return out.String()
 	}
-	if got := up(app.TunnelSetup{Tunnel: "pier-myapp", Routed: []string{"web.example.com"}}); !strings.Contains(got, note) {
+	if got := up(app.TunnelSetup{Tunnel: "pier-myapp", Routed: []string{"web.example.com"}, FirstRoute: true}); !strings.Contains(got, note) {
 		t.Errorf("Up() after routing a hostname = %q, want the Cloudflare note", got)
 	}
 	if got := up(app.TunnelSetup{Tunnel: "pier-myapp"}); strings.Contains(got, note) {
 		t.Errorf("Up() with nothing new routed = %q, want no note", got)
+	}
+	if got := up(app.TunnelSetup{Tunnel: "pier-myapp", Routed: []string{"web.example.com"}, Rechecked: true}); strings.Contains(got, note) {
+		t.Errorf("Up() pointing a known hostname again = %q, want no note", got)
 	}
 }

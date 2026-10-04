@@ -212,9 +212,9 @@ services:
 ```
 
 ```
-cloudflare   created tunnel pier-myapp
-cloudflare   api-v2.example.com → tunnel pier-myapp
-cloudflare   web.example.com → tunnel pier-myapp
+cloudflare   created tunnel pier-myapp-3f9a2c
+cloudflare   api-v2.example.com → tunnel pier-myapp-3f9a2c
+cloudflare   web.example.com → tunnel pier-myapp-3f9a2c
 public api  https://api-v2.example.com/  (cloudflare)
 public web  https://web.example.com/  (cloudflare)
 ```
@@ -224,20 +224,20 @@ public web  https://web.example.com/  (cloudflare)
 On `pier up`, Pier:
 
 1. runs `cloudflared tunnel login` if this machine has never logged in, which opens the browser to pick your zone,
-2. finds or creates the tunnel `pier-<project name>`, keeping its secret in Pier's config folder,
+2. finds or creates the tunnel `pier-<project name>-<first 6 characters of .pier/id>`, keeping its secret in Pier's config folder. The ID keeps two clones of a repo, or two projects with the same name, on separate tunnels; sharing one would make Cloudflare split requests between the machines. A tunnel made before names carried the ID keeps working,
 3. points each new hostname at the tunnel with a CNAME (`cloudflared tunnel route dns`),
 4. writes `.pier/cloudflared.yml` and has its background process run `cloudflared` with it, restarting it if it exits.
 
-The hostname is public on the internet, and Cloudflare ends TLS at its edge, so Cloudflare can read the traffic; `pier up` notes this when it routes a new hostname. Use Tailscale when no third party should see it (see [Who sees your traffic](../README.md#who-sees-your-traffic)). A later `pier up` asks Cloudflare nothing unless you add a hostname. `pier down` stops `cloudflared`; the tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile.
+The hostname is public on the internet, and Cloudflare ends TLS at its edge, so Cloudflare can read the traffic; `pier up` notes this when it routes a new hostname. Use Tailscale when no third party should see it (see [Who sees your traffic](../README.md#who-sees-your-traffic)). A later `pier up` asks Cloudflare nothing unless you add a hostname, or the tunnel failed: then it checks again that the tunnel exists and every hostname points at it, and repairs what is missing. `pier up --recheck` does that on demand, for example after deleting a record in the dashboard. `pier down` stops `cloudflared`, giving it 5 seconds to unregister from Cloudflare's edge so visitors don't hit dead connections. The tunnel and its DNS records stay for next time, and visitors get Cloudflare's error page meanwhile.
 
 A service with `provider: cloudflare` is served by Cloudflare only, never also on Tailscale. Tailscale settings on it, `public:` and `path:`, are errors, and `defaults.public` does not apply to it. `pier share` and `pier unshare` refuse it. Other services in the project stay on Tailscale, and Tailscale is not needed at all when every service uses Cloudflare.
 
 - A hostname that already has a DNS record is refused. `pier up --force` replaces the record.
-- `domain` must be the zone you picked when you logged in.
+- `domain` must be the zone you picked when you logged in. Otherwise `cloudflared` writes the record inside the logged-in zone instead (`app.example.com.other.com`); `pier up` notices, stops, and names the record to delete.
 - Throttle and capture apply to Cloudflare traffic too.
 - Your app sees the public hostname in `Host`. Dev servers that check it, such as Vite, need it allowed.
 - `pier status` and `pier doctor` show the tunnel as connecting, connected, or failed with `cloudflared`'s error. Its log is `.pier/cloudflared.log`.
-- `cloudflared` cannot delete DNS records. To remove everything, delete the CNAME in the Cloudflare dashboard and run `cloudflared tunnel delete pier-<project name>`.
+- `cloudflared` cannot delete DNS records. When a hostname leaves `pier.yaml`, its record keeps pointing at the tunnel, so `pier up`, `pier status`, `pier doctor`, and `pier clean` list it until you delete it in the Cloudflare dashboard (Pier notices once the name stops resolving; in a zone with a wildcard record it never does, so `pier clean` lists it one last time and forgets it). To remove everything, delete the records there and run `cloudflared tunnel delete` with the tunnel's name.
 
 ## Local names
 

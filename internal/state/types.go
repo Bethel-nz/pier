@@ -43,6 +43,11 @@ type Tunnel struct {
 	// daemon may start with a shorter PATH.
 	Binary string       `json:"binary"`
 	Hosts  []TunnelHost `json:"hosts"`
+	// Routed is every hostname Pier has pointed at a tunnel for this project.
+	Routed []string `json:"routed,omitempty"`
+	// Orphans are routed hostnames no longer in pier.yaml. Their DNS records
+	// still point at the tunnel, and cloudflared cannot delete them.
+	Orphans []string `json:"orphans,omitempty"`
 }
 
 // TunnelHost routes one public hostname to a service.

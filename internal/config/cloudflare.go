@@ -7,8 +7,23 @@ import (
 )
 
 // TunnelName is the Cloudflare Tunnel that serves the project's Cloudflare
-// services. The pier- prefix keeps it apart from tunnels made by hand.
-func (p Project) TunnelName() string {
+// services: pier-<name>-<first 6 of the project ID>. The ID keeps the same
+// repo on two machines, or two projects with one name, on separate tunnels;
+// sharing one would make Cloudflare split requests between the machines.
+func (p Project) TunnelName(projectID string) string {
+	id := strings.ToLower(strings.ReplaceAll(projectID, "-", ""))
+	if len(id) > 6 {
+		id = id[:6]
+	}
+	if id == "" {
+		return p.LegacyTunnelName()
+	}
+	return p.LegacyTunnelName() + "-" + id
+}
+
+// LegacyTunnelName is the name tunnels had before it carried the project
+// ID. The pier- prefix keeps it apart from tunnels made by hand.
+func (p Project) LegacyTunnelName() string {
 	var name strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(p.Name)) {
 		switch {

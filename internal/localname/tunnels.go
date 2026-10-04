@@ -171,9 +171,22 @@ func (p *tunnelProcess) state() (string, string) {
 	return TunnelConnecting, ""
 }
 
+// tunnelStopGrace is how long cloudflared gets to unregister its edge
+// connections. Killed at once, it leaves Cloudflare routing to dead
+// connections, which answer 502 or 1033 until they time out.
+var tunnelStopGrace = 5 * time.Second
+
 func (p *tunnelProcess) stop() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
+	}
+	if err := askToStop(p.cmd.Process); err == nil {
+		select {
+		case <-p.exited:
+			p.cmd = nil
+			return
+		case <-time.After(tunnelStopGrace):
+		}
 	}
 	_ = p.cmd.Process.Kill()
 	select {

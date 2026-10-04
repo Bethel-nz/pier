@@ -3,6 +3,7 @@
 package localname
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -19,3 +20,7 @@ func detach(command *exec.Cmd) {
 		HideWindow:    true,
 	}
 }
+
+// askToStop stops a process. Windows has no SIGTERM for a console process
+// without a window, so it is killed.
+func askToStop(process *os.Process) error { return process.Kill() }
