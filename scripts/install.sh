@@ -34,13 +34,34 @@ if [[ "$os" == darwin && "$arch" == amd64 && "$(sysctl -n sysctl.proc_translated
 fi
 
 asset="pier_${os}_${arch}.tar.gz"
+releases="https://github.com/${repo}/releases"
+
+# latest_tag prints the newest release's tag, such as v0.4.1: the last part
+# of where /releases/latest redirects.
+latest_tag() {
+  local url=""
+  if command -v curl >/dev/null 2>&1; then
+    url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${releases}/latest" 2>/dev/null)" || true
+  elif command -v wget >/dev/null 2>&1; then
+    url="$(wget --max-redirect=0 --server-response -O /dev/null "${releases}/latest" 2>&1 | awk 'tolower($1) == "location:" { print $2 }' | tail -n 1 | tr -d '\r')" || true
+  fi
+  local tag="${url##*/}"
+  [[ "$tag" == v* ]] && echo "$tag"
+}
+
+if [[ "$version" != "latest" && "$version" != v* ]]; then
+  version="v${version}"
+fi
 if [[ -n "${PIER_DOWNLOAD_BASE_URL:-}" ]]; then
   base_url="${PIER_DOWNLOAD_BASE_URL%/}"
-elif [[ "$version" == "latest" ]]; then
-  base_url="https://github.com/${repo}/releases/latest/download"
 else
-  [[ "$version" == v* ]] || version="v${version}"
-  base_url="https://github.com/${repo}/releases/download/${version}"
+  if [[ "$version" == "latest" ]]; then
+    if ! version="$(latest_tag)"; then
+      echo "Pier could not find its latest release at ${releases}. Check your connection, or set PIER_VERSION." >&2
+      exit 1
+    fi
+  fi
+  base_url="${releases}/download/${version}"
 fi
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/pier-install.XXXXXX")"
@@ -62,8 +83,10 @@ download() {
   fi
 }
 
-download "$base_url/$asset" "$temporary/$asset"
-download "$base_url/checksums.txt" "$temporary/checksums.txt"
+if ! download "$base_url/$asset" "$temporary/$asset" || ! download "$base_url/checksums.txt" "$temporary/checksums.txt"; then
+  echo "Pier could not download $asset for ${version}. See the versions at ${releases}." >&2
+  exit 1
+fi
 
 expected="$(awk -v file="$asset" '$2 == file || $2 == "*" file { print $1; exit }' "$temporary/checksums.txt")"
 if [[ -z "$expected" ]]; then
@@ -81,13 +104,35 @@ if [[ "$actual" != "$expected" ]]; then
   exit 1
 fi
 
+# The version already here, when it is new enough to say.
+previous=""
+if [[ -x "$install_dir/pier" ]]; then
+  previous="$("$install_dir/pier" --version 2>/dev/null | awk '{ print $2 }')" || previous=""
+fi
+
 tar -xzf "$temporary/$asset" -C "$temporary"
 mkdir -p "$install_dir"
 install -m 0755 "$temporary/pier" "$install_dir/pier"
 
-echo "Pier installed to $install_dir/pier"
+if [[ "$version" == "latest" ]]; then
+  echo "Pier installed to $install_dir/pier"
+elif [[ -n "$previous" && "$previous" != "$version" ]]; then
+  echo "Pier updated from $previous to $version in $install_dir/pier"
+else
+  echo "Pier $version installed to $install_dir/pier"
+fi
 case ":${PATH}:" in
-  *":${install_dir}:"*) echo "Run: pier --help"; exit 0 ;;
+  *":${install_dir}:"*)
+    found="$(command -v pier 2>/dev/null || true)"
+    if [[ -n "$found" && "$found" != "$install_dir/pier" ]]; then
+      echo
+      echo "$found comes earlier on your PATH, so pier still runs that one."
+      echo "Remove it, or move $install_dir ahead of $(dirname "$found") in PATH."
+    else
+      echo "Run: pier --help"
+    fi
+    exit 0
+    ;;
 esac
 
 # install_dir isn't on PATH: find the shell's startup file and the line it needs.

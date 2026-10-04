@@ -31,6 +31,16 @@ jobs:
         run: go vet ./... && go vet -tags e2e ./e2e/
       - name: test
         run: go test ./...
+      - name: installer
+        if: runner.os != 'Windows'
+        run: bash scripts/install_test.sh
+      - name: installer (parse)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
       - name: end to end
         # The real binary: pier up runs an app and serves it, then Ctrl-C,
         # pier down, and pier clean must leave nothing running.
