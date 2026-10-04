@@ -142,16 +142,17 @@ func newPlanCommand(rt *runtime) *cobra.Command {
 }
 
 func newUpCommand(rt *runtime) *cobra.Command {
-	var force, strict bool
+	var force, strict, recheck bool
 	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start run: commands, then serve every service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return rt.up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict})
+			return rt.up(cmd.Context(), app.UpRequest{Start: rt.start(), Force: force, Strict: strict, Recheck: recheck})
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "take over unmanaged routes")
 	cmd.Flags().BoolVar(&strict, "strict", false, "refuse to apply if a local target is unavailable")
+	cmd.Flags().BoolVar(&recheck, "recheck", false, "ask Cloudflare again whether the tunnel and its DNS records exist")
 	return cmd
 }
 

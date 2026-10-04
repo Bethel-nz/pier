@@ -97,7 +97,7 @@ func sameTimes(left, right map[string]time.Time) bool {
 // Expire withdraws public access whose window has closed, without opening a
 // new one. Pier's background process runs it when a window ends.
 func (s *Service) Expire(ctx context.Context, start string) error {
-	result, err := s.reconcile(ctx, start, false, false, false, nil, "")
+	result, err := s.reconcile(ctx, start, false, false, false, false, nil, "")
 	if err == nil && result.TailscaleSkipped != "" {
 		return errors.New(result.TailscaleSkipped)
 	}

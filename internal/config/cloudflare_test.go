@@ -32,8 +32,8 @@ func TestCloudflareProvider(t *testing.T) {
 			t.Errorf("%s inherited defaults.public", service.Name)
 		}
 	}
-	if !project.HasCloudflare() || project.TunnelName() != "pier-my-app" {
-		t.Fatalf("HasCloudflare = %v, tunnel = %q", project.HasCloudflare(), project.TunnelName())
+	if !project.HasCloudflare() || project.TunnelName("3f9a2c7e-1b4d-4e8a-9c0f-123456789abc") != "pier-my-app-3f9a2c" || project.LegacyTunnelName() != "pier-my-app" {
+		t.Fatalf("HasCloudflare = %v, tunnel = %q", project.HasCloudflare(), project.TunnelName("3f9a2c7e-1b4d-4e8a-9c0f-123456789abc"))
 	}
 }
 

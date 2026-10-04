@@ -71,4 +71,7 @@ func writeClean(rt *runtime, report localname.CleanReport) {
 		line("nothing to clean")
 	}
 	line("Tailscale routes are unchanged; run pier down in a project to remove them.")
+	for _, orphan := range report.OrphanedDNS {
+		line("cloudflare   %s still points at tunnel %s (%s); delete its DNS record in the Cloudflare dashboard", orphan.Hostname, orphan.Tunnel, orphan.Project)
+	}
 }

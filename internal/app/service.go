@@ -60,6 +60,9 @@ type UpRequest struct {
 	Start  string
 	Force  bool
 	Strict bool
+	// Recheck asks Cloudflare whether the tunnel and its DNS records still
+	// exist, instead of trusting what the last pier up set up.
+	Recheck bool
 }
 
 // UpResult contains the applied plan, URLs, and local health.
@@ -390,6 +393,9 @@ type Service struct {
 	tunnels    Tunnels
 	// fetch sends the background probes; nil is a real HTTP client.
 	fetch func(*http.Request) (*http.Response, error)
+	// hostGone reports whether public DNS says a hostname does not exist.
+	// Nil asks the system resolver.
+	hostGone func(ctx context.Context, host string) bool
 }
 
 // LocalNames serves .local domains: certificates, trust, and the daemon.
@@ -461,7 +467,7 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
 
 // Up validates, plans, applies, verifies, and persists owned routes.
 func (s *Service) Up(ctx context.Context, req UpRequest) (UpResult, error) {
-	return s.reconcile(ctx, req.Start, req.Force, req.Strict, true, nil, "")
+	return s.reconcile(ctx, req.Start, req.Force, req.Strict, true, req.Recheck, nil, "")
 }
 
 // Down deletes only routes recorded as owned by this project.
@@ -533,6 +539,7 @@ func (s *Service) Status(ctx context.Context, req StatusRequest) (StatusResult, 
 		}
 	}
 	withProcesses(result.Services, loaded.project.Root)
+	result.Warnings = append(result.Warnings, orphanWarnings(st.Tunnel)...)
 	return result, nil
 }
 
@@ -586,6 +593,11 @@ func (s *Service) Doctor(ctx context.Context, req DoctorRequest) (DoctorResult, 
 	if loadErr == nil && loaded.cfg.HasCloudflare() {
 		result.Warnings = append(result.Warnings, s.cloudflareWarnings(loaded.project.ID)...)
 	}
+	if loadErr == nil {
+		if st, err := s.store.Load(loaded.project.ID); err == nil {
+			result.Warnings = append(result.Warnings, orphanWarnings(st.Tunnel)...)
+		}
+	}
 	return result, loadErr
 }
 
@@ -615,7 +627,7 @@ func (s *Service) Share(ctx context.Context, req ShareRequest) (ShareResult, err
 	if err := s.refuseCloudflare(req.Start, req.Service, "share"); err != nil {
 		return ShareResult{}, err
 	}
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, false, func(overrides, _ map[string]bool) error {
 		overrides[req.Service] = true
 		return nil
 	}, req.Service)
@@ -630,7 +642,7 @@ func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResul
 	if err := s.refuseCloudflare(req.Start, req.Service, "unshare"); err != nil {
 		return UnshareResult{}, err
 	}
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(overrides, _ map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, false, func(overrides, _ map[string]bool) error {
 		delete(overrides, req.Service)
 		return nil
 	}, req.Service)
@@ -642,7 +654,7 @@ func (s *Service) Unshare(ctx context.Context, req UnshareRequest) (UnshareResul
 
 // Pause removes a service route from Tailscale and leaves the local process running.
 func (s *Service) Pause(ctx context.Context, req PauseRequest) (PauseResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(_, paused map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, false, func(_, paused map[string]bool) error {
 		paused[req.Service] = true
 		return nil
 	}, req.Service)
@@ -651,7 +663,7 @@ func (s *Service) Pause(ctx context.Context, req PauseRequest) (PauseResult, err
 
 // Resume restores a paused service route through the normal reconcile path.
 func (s *Service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, func(_, paused map[string]bool) error {
+	up, err := s.reconcile(ctx, req.Start, req.Force, req.Strict, false, false, func(_, paused map[string]bool) error {
 		delete(paused, req.Service)
 		return nil
 	}, req.Service)
@@ -794,7 +806,7 @@ func (s *Service) lookupConfiguredURL(ctx context.Context, start, name string, l
 
 // reconcile applies the project's routes. renew opens a fresh window for each
 // timed public service, which only pier up does.
-func (s *Service) reconcile(ctx context.Context, start string, force, strict, renew bool, mutate func(overrides, paused map[string]bool) error, focus string) (UpResult, error) {
+func (s *Service) reconcile(ctx context.Context, start string, force, strict, renew, recheck bool, mutate func(overrides, paused map[string]bool) error, focus string) (UpResult, error) {
 	sess, err := s.prepare(ctx, start)
 	result := UpResult{Project: sess.project}
 	if err != nil {
@@ -841,7 +853,7 @@ func (s *Service) reconcile(ctx context.Context, start string, force, strict, re
 		}
 	}
 	result.Warnings = append(s.foreignPublic(&sess), untimedPublic(sess.plan, sess.cfg, overrides)...)
-	if sess.tunnel, result.Cloudflare, err = s.setupTunnel(ctx, &sess, paused, force); err != nil {
+	if sess.tunnel, result.Cloudflare, err = s.setupTunnel(ctx, &sess, paused, force, recheck); err != nil {
 		return result, err
 	}
 	err = s.applyAndPersist(ctx, &sess, overrides, paused, true)
@@ -1090,7 +1102,7 @@ func (s *Service) applyAndPersist(ctx context.Context, sess *session, overrides,
 		sess.state.Local != settings
 	tapsChanged := !sameTaps(sess.state.Taps, taps) || (len(taps) > 0 && sess.state.Path != sess.project.Root) ||
 		!sameTimes(sess.state.PublicUntil, until)
-	tunnelChanged := !sess.state.Tunnel.Equal(tunnel) || (tunnel.Serving() && sess.state.Path != sess.project.Root)
+	tunnelChanged := !sess.state.Tunnel.Equal(tunnel) || (tunnel.Serving() && sess.state.Path != sess.project.Root) || !sameHistory(sess.state.Tunnel, tunnel)
 	if result.Verified == nil && !pausedChanged && !domainsChanged && !tapsChanged && !tunnelChanged {
 		// Nothing to save, but the daemon may have stopped since: make it serve again.
 		return s.syncLocal(ctx, sess, domains, hadWork)

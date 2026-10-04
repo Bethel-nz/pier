@@ -486,6 +486,9 @@ func writeTunnelSetup(w io.Writer, setup app.TunnelSetup) {
 	if setup.LoggedIn {
 		fmt.Fprintln(w, "cloudflare   logged in")
 	}
+	if setup.Rechecked {
+		fmt.Fprintf(w, "cloudflare   checked tunnel %s and its DNS records with Cloudflare\n", setup.Tunnel)
+	}
 	if setup.Created {
 		fmt.Fprintf(w, "cloudflare   created tunnel %s\n", setup.Tunnel)
 	}
@@ -495,6 +498,9 @@ func writeTunnelSetup(w io.Writer, setup app.TunnelSetup) {
 	if len(setup.Routed) > 0 {
 		// Said once, when a hostname first goes out through Cloudflare.
 		fmt.Fprintln(w, "cloudflare   note: Cloudflare ends TLS for these hostnames, so it can read their traffic")
+	}
+	for _, host := range setup.Orphans {
+		fmt.Fprintf(w, "cloudflare   %s left pier.yaml, but its DNS record still points at tunnel %s; delete it in the Cloudflare dashboard\n", host, setup.Tunnel)
 	}
 }
 

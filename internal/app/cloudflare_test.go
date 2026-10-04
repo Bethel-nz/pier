@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,6 +17,8 @@ import (
 )
 
 type fakeTunnels struct {
+	// gone are hostnames public DNS no longer has.
+	gone     map[string]bool
 	missing  bool
 	loggedIn bool
 	creds    string
@@ -80,6 +83,9 @@ func (e *fakeEnv) cloudflareService(tunnels Tunnels, local LocalNames) *Service 
 	svc := e.service()
 	svc.tunnels = tunnels
 	svc.EnableLocalNames(local)
+	if fake, ok := tunnels.(*fakeTunnels); ok {
+		svc.hostGone = func(_ context.Context, host string) bool { return fake.gone[host] }
+	}
 	return svc
 }
 
@@ -91,12 +97,13 @@ func TestUpSetsUpTheTunnelOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Up() = %v", err)
 	}
-	want := []string{"login", "ensure pier-myapp", "route 6f1c api.example.com", "route 6f1c app.example.com"}
+	name := config.Project{Name: "myapp"}.TunnelName(env.project.ID)
+	want := []string{"login", "ensure " + name, "route 6f1c api.example.com", "route 6f1c app.example.com"}
 	if !reflect.DeepEqual(tunnels.calls, want) {
 		t.Fatalf("cloudflared calls = %v, want %v", tunnels.calls, want)
 	}
 	setup := result.Cloudflare
-	if !setup.LoggedIn || !setup.Created || setup.Tunnel != "pier-myapp" || len(setup.Routed) != 2 {
+	if !setup.LoggedIn || !setup.Created || setup.Tunnel != name || len(setup.Routed) != 2 {
 		t.Fatalf("setup = %+v", setup)
 	}
 	saved := env.saved.Tunnel
@@ -150,7 +157,7 @@ func TestDownKeepsTheTunnelButServesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if down.TunnelStopped != "pier-myapp" {
+	if down.TunnelStopped != (config.Project{Name: "myapp"}).TunnelName(env.project.ID) {
 		t.Fatalf("TunnelStopped = %q", down.TunnelStopped)
 	}
 	env.after, env.actual, env.applyRecorded = routes, nil, false // Tailscale as pier down left it
@@ -246,5 +253,123 @@ func TestShareRefusesACloudflareService(t *testing.T) {
 	_, err := env.cloudflareService(tunnels, local).Share(context.Background(), ShareRequest{Start: env.project.Root, Service: "web"})
 	if err == nil || !strings.Contains(err.Error(), "served by Cloudflare") {
 		t.Fatalf("Share() = %v", err)
+	}
+}
+
+// upOnce runs a first pier up and makes its saved state the current one.
+func upOnce(t *testing.T, env *fakeEnv, svc *Service) {
+	t.Helper()
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	taps := env.state.Taps
+	env.state = *env.saved
+	env.state.Taps = taps
+}
+
+func TestTunnelNamesCarryTheProjectID(t *testing.T) {
+	env, tunnels, local := cloudflareEnv(t)
+	other, otherTunnels, otherLocal := cloudflareEnv(t)
+	other.project.ID = "b7e2d901-0000-4000-8000-000000000000"
+	first, _ := env.cloudflareService(tunnels, local).Up(context.Background(), UpRequest{Start: env.project.Root})
+	second, _ := other.cloudflareService(otherTunnels, otherLocal).Up(context.Background(), UpRequest{Start: other.project.Root})
+	if first.Cloudflare.Tunnel == second.Cloudflare.Tunnel || !strings.HasSuffix(second.Cloudflare.Tunnel, "-b7e2d9") {
+		t.Fatalf("tunnels = %q and %q, want one per project", first.Cloudflare.Tunnel, second.Cloudflare.Tunnel)
+	}
+}
+
+func TestUpKeepsATunnelNamedBeforeProjectIDs(t *testing.T) {
+	env, tunnels, local := cloudflareEnv(t)
+	svc := env.cloudflareService(tunnels, local)
+	upOnce(t, env, svc)
+	env.state.Tunnel.Name = "pier-myapp"
+	tunnels.calls = nil
+
+	result, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tunnels.calls) != 0 || result.Cloudflare.Tunnel != "pier-myapp" || env.saved.Tunnel.Name != "pier-myapp" {
+		t.Fatalf("calls = %v, tunnel = %q; want the old tunnel kept without asking Cloudflare", tunnels.calls, result.Cloudflare.Tunnel)
+	}
+}
+
+func TestUpRechecksTheTunnelWhenAskedOrWhenItFailed(t *testing.T) {
+	env, tunnels, local := cloudflareEnv(t)
+	svc := env.cloudflareService(tunnels, local)
+	upOnce(t, env, svc)
+	name := env.state.Tunnel.Name
+	want := []string{"ensure " + name, "route 6f1c api.example.com", "route 6f1c app.example.com"}
+
+	tunnels.calls = nil
+	result, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root, Recheck: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(tunnels.calls, want) || !result.Cloudflare.Rechecked {
+		t.Fatalf("--recheck calls = %v (rechecked %v), want %v", tunnels.calls, result.Cloudflare.Rechecked, want)
+	}
+
+	local.report.Tunnels[env.project.ID] = localname.TunnelStatus{Project: env.project.ID, Name: name, State: localname.TunnelFailed, Detail: "tunnel not found"}
+	tunnels.calls = nil
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(tunnels.calls, want) {
+		t.Fatalf("calls after a failed tunnel = %v, want %v", tunnels.calls, want)
+	}
+}
+
+func TestRemovedHostnamesAreReportedAsOrphans(t *testing.T) {
+	env, tunnels, local := cloudflareEnv(t)
+	svc := env.cloudflareService(tunnels, local)
+	upOnce(t, env, svc)
+
+	delete(env.raw.Services, "web")
+	result, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Cloudflare.Orphans, []string{"app.example.com"}) || !reflect.DeepEqual(env.saved.Tunnel.Orphans, []string{"app.example.com"}) {
+		t.Fatalf("orphans = %v, saved %+v", result.Cloudflare.Orphans, env.saved.Tunnel)
+	}
+	env.state = *env.saved
+	status, err := svc.Status(context.Background(), StatusRequest{Start: env.project.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(status.Warnings, "\n"), "app.example.com still points at tunnel") {
+		t.Fatalf("status warnings = %q", status.Warnings)
+	}
+
+	// The last Cloudflare service goes too: the tunnel and both records are remembered.
+	delete(env.raw.Services, "api")
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	tunnel := env.saved.Tunnel
+	if tunnel == nil || tunnel.Serving() || !reflect.DeepEqual(tunnel.Orphans, []string{"api.example.com", "app.example.com"}) {
+		t.Fatalf("tunnel = %+v, want it idle with both hostnames orphaned", tunnel)
+	}
+
+	// Once a record is deleted in the dashboard, its name stops resolving and is forgotten.
+	env.state = *env.saved
+	tunnels.gone = map[string]bool{"api.example.com": true}
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	if got := env.saved.Tunnel; !reflect.DeepEqual(got.Orphans, []string{"app.example.com"}) || slices.Contains(got.Routed, "api.example.com") {
+		t.Fatalf("tunnel = %+v, want api.example.com forgotten", got)
+	}
+	tunnels.gone = nil
+
+	// Putting a hostname back makes it in use again.
+	env.state = *env.saved
+	env.raw.Services["web"] = config.Service{Target: "localhost:3000", Provider: "cloudflare", Hostname: "app"}
+	if _, err := svc.Up(context.Background(), UpRequest{Start: env.project.Root}); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.saved.Tunnel.Orphans) != 0 {
+		t.Fatalf("orphans = %v, want none", env.saved.Tunnel.Orphans)
 	}
 }

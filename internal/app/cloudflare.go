@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/Bethel-nz/pier/internal/cloudflare"
+	"github.com/Bethel-nz/pier/internal/config"
 	"github.com/Bethel-nz/pier/internal/localname"
 	"github.com/Bethel-nz/pier/internal/state"
 )
@@ -31,8 +36,14 @@ type TunnelSetup struct {
 	Tunnel   string
 	LoggedIn bool // this run logged in to Cloudflare
 	Created  bool // this run created the tunnel
+	// Rechecked is set when this run asked Cloudflare again whether the
+	// tunnel and its DNS records exist, rather than trusting saved state.
+	Rechecked bool
 	// Routed are hostnames this run pointed at the tunnel.
 	Routed []string
+	// Orphans are hostnames that left pier.yaml; their DNS records still
+	// point at the tunnel until removed in the Cloudflare dashboard.
+	Orphans []string
 }
 
 // EnableCloudflare lets pier up log in to Cloudflare and create tunnels.
@@ -44,11 +55,23 @@ func (s *Service) EnableCloudflare(interactive func() bool) {
 
 // setupTunnel makes sure the project's tunnel exists and every hostname
 // routes to it, then returns the tunnel the daemon should run. Paused
-// services are left out; a hostname already routed is not routed again.
-func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[string]bool, force bool) (*state.Tunnel, TunnelSetup, error) {
+// services are left out; a hostname already routed is not routed again,
+// unless recheck is set or the daemon says the tunnel failed.
+func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[string]bool, force, recheck bool) (*state.Tunnel, TunnelSetup, error) {
 	var setup TunnelSetup
+	saved := sess.state.Tunnel
 	if !sess.cfg.HasCloudflare() {
-		return nil, setup, nil
+		if saved == nil || len(saved.Routed)+len(saved.Hosts)+len(saved.Orphans) == 0 {
+			return nil, setup, nil
+		}
+		// Every hostname left pier.yaml: keep the tunnel's identity, and its
+		// DNS records as orphans until they are removed.
+		idle := idleTunnel(saved)
+		idle.Routed = history(saved, nil)
+		idle.Orphans = orphans(idle.Routed, sess.cfg)
+		s.forgetDeleted(ctx, idle)
+		setup.Tunnel, setup.Orphans = idle.Name, idle.Orphans
+		return idle, setup, nil
 	}
 	if s.tunnels == nil {
 		return nil, setup, errors.New("Pier cannot serve provider: cloudflare services from here; run pier up")
@@ -57,18 +80,26 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 	if err != nil {
 		return nil, setup, &PrerequisiteError{Err: err}
 	}
-	name := sess.cfg.TunnelName()
+	name := sess.cfg.TunnelName(sess.project.ID)
+	if saved != nil && saved.Name == sess.cfg.LegacyTunnelName() && fileExists(saved.Credentials) {
+		// Made before tunnel names carried the project ID. Keep it rather
+		// than move every hostname to a new tunnel.
+		name = saved.Name
+	}
 	setup.Tunnel = name
-	saved := sess.state.Tunnel
+	if !recheck && s.tunnelFailed(sess.project.ID) {
+		recheck = true // the tunnel or its credentials may be gone
+	}
+	setup.Rechecked = recheck
 	routed := map[string]bool{}
-	if saved != nil && saved.Name == name {
+	if saved != nil && saved.Name == name && !recheck {
 		for _, host := range saved.Hosts {
 			routed[host.Hostname] = true
 		}
 	}
 
 	tunnel := &state.Tunnel{Name: name, Binary: binary}
-	if saved != nil && saved.Name == name && fileExists(saved.Credentials) {
+	if saved != nil && saved.Name == name && fileExists(saved.Credentials) && !recheck {
 		tunnel.ID, tunnel.Credentials = saved.ID, saved.Credentials
 	}
 	targets := map[string]string{}
@@ -85,6 +116,11 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 		}
 		tunnel.Hosts = append(tunnel.Hosts, state.TunnelHost{Service: service.Name, Hostname: service.Cloudflare, Target: target})
 	}
+
+	tunnel.Routed = history(saved, tunnel.Hosts)
+	tunnel.Orphans = orphans(tunnel.Routed, sess.cfg)
+	s.forgetDeleted(ctx, tunnel)
+	setup.Orphans = tunnel.Orphans
 
 	needsCloudflare := tunnel.ID == ""
 	for _, host := range tunnel.Hosts {
@@ -117,6 +153,112 @@ func (s *Service) setupTunnel(ctx context.Context, sess *session, paused map[str
 		setup.Routed = append(setup.Routed, host.Hostname)
 	}
 	return tunnel, setup, nil
+}
+
+// tunnelFailed reports whether the daemon says the project's tunnel failed.
+func (s *Service) tunnelFailed(projectID string) bool {
+	if s.locals == nil {
+		return false
+	}
+	status, running := s.locals.Status().Tunnel(projectID)
+	return running && status.State == localname.TunnelFailed
+}
+
+// history is every hostname routed for the project: what was saved, and the
+// hostnames it routes now.
+func history(saved *state.Tunnel, hosts []state.TunnelHost) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	if saved != nil {
+		for _, name := range saved.Routed {
+			add(name)
+		}
+		for _, host := range saved.Hosts {
+			add(host.Hostname)
+		}
+	}
+	for _, host := range hosts {
+		add(host.Hostname)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// forgetDeleted drops orphans whose DNS record is gone: once deleted in the
+// dashboard, a hostname no longer resolves. cloudflared cannot list records,
+// so public DNS is the only way to tell.
+func (s *Service) forgetDeleted(ctx context.Context, tunnel *state.Tunnel) {
+	gone := s.hostGone
+	if gone == nil {
+		gone = hostGone
+	}
+	var kept []string
+	deleted := map[string]bool{}
+	for _, name := range tunnel.Orphans {
+		if gone(ctx, name) {
+			deleted[name] = true
+		} else {
+			kept = append(kept, name)
+		}
+	}
+	if len(deleted) == 0 {
+		return
+	}
+	tunnel.Orphans = kept
+	tunnel.Routed = slices.DeleteFunc(tunnel.Routed, func(name string) bool { return deleted[name] })
+}
+
+// hostGone asks the system resolver, briefly, whether host exists. Only a
+// definite "no such host" counts; a timeout keeps the orphan.
+func hostGone(ctx context.Context, host string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := net.DefaultResolver.LookupHost(ctx, host)
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
+}
+
+// orphans are routed hostnames no service in cfg uses any more. A paused
+// service still uses its hostname.
+func orphans(routed []string, cfg config.Project) []string {
+	inUse := map[string]bool{}
+	for _, service := range cfg.Services {
+		inUse[service.Cloudflare] = true
+	}
+	var out []string
+	for _, name := range routed {
+		if !inUse[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// sameHistory reports whether two tunnels remember the same hostnames.
+func sameHistory(a, b *state.Tunnel) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return slices.Equal(a.Routed, b.Routed) && slices.Equal(a.Orphans, b.Orphans)
+}
+
+// orphanWarnings says which DNS records still point at the project's tunnel
+// although their services are gone.
+func orphanWarnings(tunnel *state.Tunnel) []string {
+	if tunnel == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range tunnel.Orphans {
+		out = append(out, fmt.Sprintf("cloudflare: %s still points at tunnel %s, but no service uses it; delete its DNS record in the Cloudflare dashboard", name, tunnel.Name))
+	}
+	return out
 }
 
 // cloudflareWarnings explains what stops the project's Cloudflare services

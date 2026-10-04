@@ -106,6 +106,24 @@ func TestRouteDNS(t *testing.T) {
 	}
 }
 
+func TestRouteDNSRefusesARecordInAnotherZone(t *testing.T) {
+	runner := &fakeRunner{answers: map[string]answer{
+		"tunnel route dns 6f1c app.other.com":   {stderr: "2026-10-04T09:15:00Z INF Added CNAME app.other.com.example.com which will route to this tunnel tunnelID=6f1c"},
+		"tunnel route dns 6f1c again.other.com": {stderr: "2026-10-04T09:15:00Z INF again.other.com.example.com is already configured to route to your tunnel tunnelID=6f1c"},
+		"tunnel route dns 6f1c app.example.com": {stderr: "2026-10-04T09:15:00Z INF Added CNAME app.example.com which will route to this tunnel tunnelID=6f1c"},
+	}}
+	client := &Client{Binary: "cloudflared", runner: runner}
+	for _, host := range []string{"app.other.com", "again.other.com"} {
+		err := client.RouteDNS(context.Background(), "6f1c", host, false)
+		if !errors.Is(err, ErrWrongZone) || !strings.Contains(err.Error(), "Delete "+host+".example.com in the Cloudflare dashboard") {
+			t.Fatalf("%s: err = %v", host, err)
+		}
+	}
+	if err := client.RouteDNS(context.Background(), "6f1c", "app.example.com", false); err != nil {
+		t.Fatalf("a record in the right zone: %v", err)
+	}
+}
+
 func TestConfig(t *testing.T) {
 	contents, err := Config(Tunnel{ID: "6f1c", Credentials: "/home/ren/creds.json"}, []Route{
 		{Hostname: "app.example.com", Target: "http://127.0.0.1:3000"},

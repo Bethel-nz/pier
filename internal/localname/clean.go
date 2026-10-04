@@ -20,7 +20,17 @@ type CleanReport struct {
 	// RemovedCaptures are capture files: requests kept for pier replay.
 	RemovedCaptures []string `json:"removedCaptures,omitempty"`
 	ClearedNames    []string `json:"clearedNames,omitempty"`
-	Errors          []string `json:"errors,omitempty"`
+	// OrphanedDNS are Cloudflare hostnames no longer in any pier.yaml whose
+	// DNS records still point at a Pier tunnel. Pier cannot delete them.
+	OrphanedDNS []OrphanedDNS `json:"orphanedDNS,omitempty"`
+	Errors      []string      `json:"errors,omitempty"`
+}
+
+// OrphanedDNS is a hostname still routed to a project's tunnel.
+type OrphanedDNS struct {
+	Hostname string `json:"hostname"`
+	Tunnel   string `json:"tunnel"`
+	Project  string `json:"project"`
 }
 
 // runtimeFiles are the daemon's files, plus the ones the first local-names
@@ -56,6 +66,11 @@ func (d *Directory) Clean(ctx context.Context) CleanReport {
 		fail("read projects", err)
 	}
 	for _, project := range saved {
+		if project.Tunnel != nil {
+			for _, host := range project.Tunnel.Orphans {
+				report.OrphanedDNS = append(report.OrphanedDNS, OrphanedDNS{Hostname: host, Tunnel: project.Tunnel.Name, Project: project.Name})
+			}
+		}
 		if project.Path != "" {
 			dir := certs.LeafDir(project.Path)
 			if _, statErr := os.Stat(dir); statErr == nil {

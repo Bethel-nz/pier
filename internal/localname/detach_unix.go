@@ -3,6 +3,7 @@
 package localname
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -11,3 +12,6 @@ import (
 func detach(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
+
+// askToStop asks a process to shut down cleanly.
+func askToStop(process *os.Process) error { return process.Signal(syscall.SIGTERM) }
