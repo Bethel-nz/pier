@@ -27,6 +27,10 @@ type Listeners struct {
 	serve func(net.Listener)
 	mu    sync.Mutex
 	bound map[string]net.Listener
+	// serving is false while Bind is still deciding whether this port is
+	// usable: listeners bound until then are held, not served, so a port
+	// that turns out unusable never served anything.
+	serving bool
 }
 
 // Bind takes the first port in ports that Pier can serve on, either on every
@@ -36,18 +40,30 @@ func Bind(ports []int, serve func(net.Listener)) (*Listeners, error) {
 	for _, port := range ports {
 		listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 		if err == nil {
-			l := &Listeners{Port: port, Skipped: errs, serve: serve, bound: map[string]net.Listener{"*": listener}}
+			l := &Listeners{Port: port, Skipped: errs, serve: serve, bound: map[string]net.Listener{"*": listener}, serving: true}
 			serve(listener)
 			return l, nil
 		}
 		l := &Listeners{Port: port, PerAddress: true, Skipped: errs, serve: serve, bound: map[string]net.Listener{}}
 		if l.bindAddresses(machineAddresses()) {
+			l.startServing()
 			return l, nil
 		}
 		l.Close()
 		errs = append(errs, fmt.Errorf("port %d: %w", port, err))
 	}
 	return nil, errors.Join(errs...)
+}
+
+// startServing hands the listeners bound so far to serve, and every one
+// bound later.
+func (l *Listeners) startServing() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.serving = true
+	for _, listener := range l.bound {
+		l.serve(listener)
+	}
 }
 
 // Refresh binds addresses that appeared and releases ones that went away.
@@ -115,7 +131,9 @@ func (l *Listeners) bindAddresses(want []string) bool {
 			continue
 		}
 		l.bound[addr] = listener
-		l.serve(listener)
+		if l.serving {
+			l.serve(listener)
+		}
 	}
 	_, loopback := l.bound["127.0.0.1"]
 	lan := len(l.bound) - boolInt(loopback)
