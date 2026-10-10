@@ -88,6 +88,19 @@ services:
 
 A second `pier up` in the same project updates routes without starting the commands again.
 
+### Logs
+
+Every line a `run` command prints is also kept in `.pier/logs/<service>.log`, with a timestamp. Each log is capped at 2 MiB and rolls to `<service>.log.1`, so a service never keeps more than about 4 MiB. Logs survive crashes and later `pier up` runs. Services without `run` have no logs, and the proxy's requests are never logged.
+
+`pier up --quiet` (`-q`) keeps command output off the terminal and prints a one-line summary instead; Pier still notes each exit and restart. It does not detach: Ctrl-C still stops the commands.
+
+```
+pier logs            # recent lines from every service
+pier logs api -n 20  # the last 20 lines of one
+pier logs -f         # follow until Ctrl-C
+```
+
+
 ### Health
 
 By default a service is `healthy` when its port accepts connections. A dev server stuck on a compile error still does, so give it a `health` path:

@@ -19,6 +19,8 @@ type prefixer struct {
 	colors  map[string]string
 	pending map[string]*bytes.Buffer
 	tails   map[string]*tail
+	sink    *logSink // when set, every line is also appended to its log file
+	quiet   bool     // keep output off the terminal; the log file still gets it
 }
 
 func newPrefixer(out io.Writer, names []string, color bool) *prefixer {
@@ -30,6 +32,17 @@ func newPrefixer(out io.Writer, names []string, color bool) *prefixer {
 		p.tails[name] = &tail{}
 	}
 	return p
+}
+
+// emit shows a process's line and logs it.
+func (p *prefixer) emit(name, line string) {
+	if p.sink != nil {
+		p.sink.write(name, line)
+	}
+	if !p.quiet {
+		_, _ = io.WriteString(p.out, p.prefix(name)+strings.TrimRight(line, "\r\n")+"\n")
+	}
+	p.tails[name].add(line)
 }
 
 func (p *prefixer) prefix(name string) string {
@@ -58,8 +71,11 @@ func (w lineWriter) Write(b []byte) (int, error) {
 			buf.Write(line) // no newline yet: keep it for the next write
 			break
 		}
-		_, _ = io.WriteString(w.p.out, w.p.prefix(w.name)+string(line))
-		w.p.tails[w.name].add(string(line))
+		w.p.emit(w.name, string(line))
+	}
+	if buf.Len() > maxLineBytes {
+		w.p.emit(w.name, buf.String()) // one enormous line: write it in pieces
+		buf.Reset()
 	}
 	return len(b), nil
 }
@@ -69,8 +85,7 @@ func (p *prefixer) flush(name string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if buf := p.pending[name]; buf.Len() > 0 {
-		_, _ = io.WriteString(p.out, p.prefix(name)+buf.String()+"\n")
-		p.tails[name].add(buf.String())
+		p.emit(name, buf.String())
 		buf.Reset()
 	}
 }
@@ -95,6 +110,9 @@ func (p *prefixer) note(name, message string) {
 	defer p.mu.Unlock()
 	if p.color {
 		message = "\x1b[2m" + message + "\x1b[0m"
+	}
+	if p.sink != nil {
+		p.sink.write(name, "pier: "+message)
 	}
 	_, _ = io.WriteString(p.out, p.prefix(name)+"pier: "+message+"\n")
 }

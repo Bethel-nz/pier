@@ -190,6 +190,7 @@ Every gotcha below came up in real use. Details in [`docs/troubleshooting.md`](d
 | `pier --setup` | Trust Pier's CA here and serve `http://pier.local/setup` for other devices until Ctrl-C |
 | `pier validate` | Schema and semantic checks without requiring services to run |
 | `pier plan` | Print the non-mutating desired-versus-actual plan |
+| `pier logs [service] [-f] [-n N]` | Show what `run:` commands printed (kept in `.pier/logs`); `pier up --quiet` hides it from the terminal |
 | `pier up` | Start `run:` commands, then validate, plan, apply, verify, persist ownership, print URLs |
 | `pier down` | Remove only routes owned by this Pier project |
 | `pier status [--all]` | Show what is actually live for each service, how long anything has been PUBLIC, and what differs from `pier.yaml`; `--all` lists every route Pier can see on this machine |
