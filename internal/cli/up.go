@@ -22,7 +22,7 @@ var readyTimeout = 60 * time.Second
 
 // up applies routes. With run: commands it starts them first and stays in the
 // foreground with their output until Ctrl-C, like docker compose up.
-func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
+func (rt *runtime) up(ctx context.Context, req app.UpRequest, quiet bool) error {
 	plan, err := rt.app.RunPlan(req.Start)
 	if err != nil || len(plan.Processes) == 0 {
 		result, upErr := rt.app.Up(ctx, req)
@@ -46,7 +46,7 @@ func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
 	if rt.json {
 		logs = rt.stderr // keep stdout valid JSON
 	}
-	supervisor := runner.Start(runCtx, plan.Processes, logs, runner.Options{Color: rt.colorFor(logs), StateFile: runner.StateFile(runDir)})
+	supervisor := runner.Start(runCtx, plan.Processes, logs, runner.Options{Color: rt.colorFor(logs), StateFile: runner.StateFile(runDir), LogDir: runner.LogDir(runDir), Quiet: quiet})
 	waitForTargets(runCtx, supervisor, plan.Targets)
 	if runCtx.Err() != nil {
 		supervisor.Wait()
@@ -58,6 +58,9 @@ func (rt *runtime) up(ctx context.Context, req app.UpRequest) error {
 		stop()
 		supervisor.Wait()
 		return renderErr
+	}
+	if quiet {
+		fmt.Fprintf(rt.stderr, "%s · pier logs -f to follow\n", runner.Summary(supervisor.Status()))
 	}
 	fmt.Fprintln(rt.stderr, "Ctrl-C stops the commands; routes stay until pier down")
 	supervisor.Wait()

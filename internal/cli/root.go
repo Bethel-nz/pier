@@ -126,6 +126,7 @@ func newRootCommand(stdout, stderr io.Writer, application App, local *localname.
 		newPlanCommand(rt),
 		newUpCommand(rt),
 		newDownCommand(rt),
+		newLogsCommand(rt),
 		newStatusCommand(rt),
 		newDoctorCommand(rt),
 		newShareCommand(rt),

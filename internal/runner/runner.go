@@ -44,6 +44,12 @@ type Options struct {
 	// StateFile, when set, is where the processes' states are recorded for
 	// pier status.
 	StateFile string
+	// LogDir, when set, is where each process's output is also kept, one
+	// file per process, for pier logs.
+	LogDir string
+	// Quiet keeps process output off the terminal. It is still logged.
+	// Pier's own notes about exits and restarts are still shown.
+	Quiet bool
 }
 
 // stopGrace is how long a process gets to exit after a polite stop.
@@ -87,6 +93,10 @@ func Start(ctx context.Context, procs []Process, out io.Writer, opts Options) *S
 		states:    map[string]ProcessStatus{},
 		order:     names,
 	}
+	s.out.quiet = opts.Quiet
+	if opts.LogDir != "" {
+		s.out.sink = newLogSink(opts.LogDir)
+	}
 	for _, proc := range procs {
 		s.wg.Add(1)
 		go func() {
@@ -98,7 +108,14 @@ func Start(ctx context.Context, procs []Process, out io.Writer, opts Options) *S
 }
 
 // Wait blocks until every process has stopped for good.
-func (s *Supervisor) Wait() { s.wg.Wait() }
+func (s *Supervisor) Wait() {
+	s.wg.Wait()
+	s.out.mu.Lock()
+	defer s.out.mu.Unlock()
+	if s.out.sink != nil {
+		s.out.sink.close()
+	}
+}
 
 // Running lists the processes that are up right now.
 func (s *Supervisor) Running() []string {
