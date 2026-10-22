@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a reproducible problem with Pier.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before filing a new report.
+        **Do not post secrets, tunnel credentials, private keys, private tailnet information, or sensitive network names.**
+        Sanitize configuration, logs, command output, and screenshots; replace private hostnames and addresses with placeholders.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Include the OS version and architecture.
+      placeholder: "For example: Ubuntu 24.04, amd64"
+    validations:
+      required: true
+  - type: input
+    id: pier-version
+    attributes:
+      label: Pier version or commit
+      description: Run pier --version; for a source checkout, include git rev-parse HEAD.
+    validations:
+      required: true
+  - type: input
+    id: backend-version
+    attributes:
+      label: Relevant backend versions
+      description: Include tailscale version for Tailscale issues or cloudflared --version for Cloudflare issues. Leave blank if no external backend is involved.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest reproducible setup, commands, and exposure path (local/LAN, Tailscale Serve/Funnel, or Cloudflare). Say whether the target service is running.
+      placeholder: |
+        1. Start the target service on ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect Pier to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include the error message or unexpected output after sanitizing it.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Sanitized pier.yaml
+      description: Include the smallest relevant config, with secrets, tunnel credentials, and private network details removed. Leave blank if the problem does not use a config.
+      render: yaml
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: If relevant, include output from pier validate, pier plan, pier status, or pier doctor. Review all output before sharing; verbose diagnostics may contain private network details. Do not run live apply just to file a report.
+      render: text
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation performed
+      description: List the commands or checks you actually ran and their results, including any workaround tried. Write "Not run" if none; a live Tailscale account is not required to report a bug.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have removed secrets, tunnel credentials, private tailnet information, and sensitive network names from this report and any attachments.
+          required: true
