@@ -266,6 +266,10 @@ PIER_SMOKE_APPLY=1 ./scripts/smoke.sh
 
 That apply path needs a disposable machine authorized for the exposure paths you exercise. `pier down` runs in a trap and the script checks that unrelated routes are unchanged.
 
+## Contributing
+
+See [Contributing to Pier](CONTRIBUTING.md) for development setup, focused checks, safety boundaries, and how to open an issue or pull request.
+
 ## License
 
 Pier is available under the [MIT License](LICENSE).
